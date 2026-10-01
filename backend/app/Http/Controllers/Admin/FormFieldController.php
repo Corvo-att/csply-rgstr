@@ -60,4 +60,36 @@ class FormFieldController extends Controller
 
         return back()->with('success', 'Order saved.');
     }
+
+    /**
+     * Batch replace all fields for a form — used by the Builder page.
+     */
+    public function saveBatch(Request $request, Form $form)
+    {
+        $request->validate([
+            'fields'              => ['required', 'array'],
+            'fields.*.label'      => ['required', 'string', 'max:255'],
+            'fields.*.field_key'  => ['required', 'string'],
+            'fields.*.field_type' => ['required', 'string'],
+            'fields.*.is_required'=> ['boolean'],
+            'fields.*.sort_order' => ['integer'],
+        ]);
+
+        $form->fields()->delete();
+
+        foreach ($request->fields as $idx => $f) {
+            FormField::create([
+                'form_id'    => $form->id,
+                'label'      => $f['label'],
+                'field_key'  => $f['field_key'] ?: Str::snake($f['label']),
+                'field_type' => $f['field_type'],
+                'options'    => $f['options'] ?? [],
+                'is_required'=> (bool) ($f['is_required'] ?? false),
+                'sort_order' => (int) ($f['sort_order'] ?? $idx + 1),
+                'help_text'  => $f['help_text'] ?? null,
+            ]);
+        }
+
+        return back()->with('success', 'Fields saved.');
+    }
 }

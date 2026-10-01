@@ -8,3 +8,5 @@
 .env.testing
 /public/storage
 /public/hot
+/public/build
+/node_modules
