@@ -34,7 +34,6 @@ function validateField(field, value) {
 export default function Fill({ event, form, fields = [], cosplayer }) {
   const [values,      setValues]     = useState({});
   const [errors,      setErrors]     = useState({});
-  const [submitted,   setSubmitted]  = useState(false);
   const [submitting,  setSubmitting] = useState(false);
   const [serverError, setServerError]= useState('');
 
@@ -53,25 +52,6 @@ export default function Fill({ event, form, fields = [], cosplayer }) {
     );
   }
 
-  /* ── Success ─────────────────────────────────────────────────────── */
-  if (submitted) {
-    return (
-      <AuthenticatedLayout>
-        <div className="page-content fade-up" style={{ maxWidth: 600 }}>
-          <div className="card" style={{ textAlign: 'center', padding: '3rem 2rem' }}>
-            <div className="success-icon">✓</div>
-            <h2 style={{ marginBottom: '0.5rem' }}>Submission Received!</h2>
-            <p className="text-muted">
-              Your response to <strong>{form.name}</strong> has been recorded.
-            </p>
-            <Link href="/profile-page">
-              <button className="btn btn-primary mt-3">Back to Profile</button>
-            </Link>
-          </div>
-        </div>
-      </AuthenticatedLayout>
-    );
-  }
 
   /* ── Handlers ────────────────────────────────────────────────────── */
   function handleChange(fieldKey, val) {
@@ -95,9 +75,9 @@ export default function Fill({ event, form, fields = [], cosplayer }) {
     setSubmitting(true);
     setServerError('');
 
+    // On success the server redirects to cosplay.profile — Inertia handles navigation.
     router.post(`/events/${event.id}/forms/${form.id}/submit`, { values }, {
-      onSuccess: () => setSubmitted(true),
-      onError:   (err) => {
+      onError:  (err) => {
         setSubmitting(false);
         setServerError(Object.values(err)[0] || 'Submission failed. Please try again.');
       },

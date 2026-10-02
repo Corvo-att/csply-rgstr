@@ -1,5 +1,5 @@
 import React from 'react';
-import { Link, router } from '@inertiajs/react';
+import { Link, router, usePage } from '@inertiajs/react';
 import AuthenticatedLayout from '../../Layouts/AuthenticatedLayout.jsx';
 
 const expColors = {
@@ -10,6 +10,8 @@ const expColors = {
 };
 
 export default function Profile({ user, cosplayer, events = [] }) {
+  const { flash } = usePage().props;
+
   // Flatten published events → active forms for this cosplayer
   const availableForms = events.flatMap((ev) =>
     (ev.forms || [])
@@ -24,6 +26,14 @@ export default function Profile({ user, cosplayer, events = [] }) {
   return (
     <AuthenticatedLayout>
       <div className="page-content">
+
+        {/* ── Flash messages ──────────────────────────────────────────── */}
+        {flash?.success && (
+          <div className="alert alert-success mb-3">{flash.success}</div>
+        )}
+        {flash?.error && (
+          <div className="alert alert-error mb-3">{flash.error}</div>
+        )}
 
         {/* ── Page header ────────────────────────────────────────────── */}
         <div className="page-header flex justify-between items-center" style={{ flexWrap: 'wrap', gap: '0.75rem' }}>

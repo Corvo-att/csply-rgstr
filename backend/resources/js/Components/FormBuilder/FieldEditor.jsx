@@ -154,12 +154,49 @@ export default function FieldEditor({ field, onSave, onCancel }) {
         </div>
       )}
 
-      {/* File / Image */}
+      {/* File / Image upload size limits */}
       {(field.fieldType === 'file' || field.fieldType === 'image') && (
-        <div className="form-group">
-          <label htmlFor="fe-maxsize">Max Size (KB)</label>
-          <input id="fe-maxsize" type="number" value={local.options.max_size_kb ?? ''} onChange={(e) => handleOptionChange('max_size_kb', e.target.value)} />
-        </div>
+        <>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
+            <div className="form-group">
+              <label htmlFor="fe-maxsize-mb">Max Size (MB)</label>
+              <input
+                id="fe-maxsize-mb"
+                type="number"
+                min={0}
+                step={0.1}
+                value={local.options.max_size_mb ?? ''}
+                onChange={(e) => handleOptionChange('max_size_mb', e.target.value)}
+                placeholder="e.g. 5"
+              />
+              <span className="form-help">Leave blank for no limit.</span>
+            </div>
+            <div className="form-group">
+              <label htmlFor="fe-maxsize-kb">Max Size (KB) <span className="text-muted" style={{fontWeight:400}}>(overrides MB)</span></label>
+              <input
+                id="fe-maxsize-kb"
+                type="number"
+                min={0}
+                value={local.options.max_size_kb ?? ''}
+                onChange={(e) => handleOptionChange('max_size_kb', e.target.value)}
+                placeholder="e.g. 2048"
+              />
+            </div>
+          </div>
+          {field.fieldType === 'file' && (
+            <div className="form-group">
+              <label htmlFor="fe-accept">Accepted MIME Types</label>
+              <input
+                id="fe-accept"
+                type="text"
+                value={local.options.accepted_formats ?? ''}
+                onChange={(e) => handleOptionChange('accepted_formats', e.target.value)}
+                placeholder="image/png,application/pdf,…"
+              />
+              <span className="form-help">Comma-separated MIME types. Leave blank to accept all.</span>
+            </div>
+          )}
+        </>
       )}
 
       {/* Video Upload */}

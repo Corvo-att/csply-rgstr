@@ -74,8 +74,9 @@ Route::prefix('admin')->name('admin.')->group(function () {
         Route::patch('form-fields/{field}',      [FormFieldController::class, 'update'])->name('form-fields.update');
         Route::delete('form-fields/{field}',     [FormFieldController::class, 'destroy'])->name('form-fields.destroy');
 
-        // Submissions
-        Route::get('forms/{form}/submissions',        [AdminSubmissionController::class, 'index'])->name('forms.submissions');
-        Route::get('forms/{form}/submissions/export', [AdminSubmissionController::class, 'export'])->name('forms.submissions.export');
+        // Submissions — export MUST be declared before {submission} wildcard
+        Route::get('forms/{form}/submissions',              [AdminSubmissionController::class, 'index'])->name('forms.submissions');
+        Route::get('forms/{form}/submissions/export',       [AdminSubmissionController::class, 'export'])->name('forms.submissions.export');
+        Route::get('forms/{form}/submissions/{submission}', [AdminSubmissionController::class, 'show'])->name('forms.submissions.show');
     });
 });

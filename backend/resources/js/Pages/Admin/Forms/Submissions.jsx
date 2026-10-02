@@ -2,6 +2,48 @@ import React from 'react';
 import { Link } from '@inertiajs/react';
 import AdminLayout from '../../../Layouts/AdminLayout.jsx';
 
+const MEDIA_TYPES = ['file', 'image', 'video'];
+
+function isUrl(val) {
+  try { return Boolean(new URL(val)); } catch { return false; }
+}
+
+function isImage(url) {
+  return /\.(png|jpe?g|gif|webp|svg|bmp|tiff?)(\?.*)?$/i.test(url);
+}
+
+function isVideo(url) {
+  return /\.(mp4|webm|ogg|mov|avi|mkv)(\?.*)?$/i.test(url);
+}
+
+function MediaThumb({ url }) {
+  if (!url || !isUrl(url)) return <span className="text-muted">—</span>;
+  if (isVideo(url)) {
+    return (
+      <span title={url} style={{ display: 'inline-flex', alignItems: 'center', gap: '0.3rem', color: 'var(--color-primary)', fontSize: '0.82rem' }}>
+        <span style={{ fontSize: '1rem' }}>▶</span> video
+      </span>
+    );
+  }
+  if (isImage(url)) {
+    return (
+      <img
+        src={url}
+        alt="submission"
+        style={{ width: 48, height: 48, objectFit: 'cover', borderRadius: 6, border: '1px solid var(--color-border)', verticalAlign: 'middle', cursor: 'pointer' }}
+        onClick={() => window.open(url, '_blank')}
+        title="Click to open full size"
+      />
+    );
+  }
+  // Generic file link
+  return (
+    <a href={url} target="_blank" rel="noreferrer" className="text-sm" style={{ color: 'var(--color-primary)' }}>
+      📎 file
+    </a>
+  );
+}
+
 function exportSubmissionsCSV(form, fields, submissions) {
   const headers = ['Submission ID', 'Cosplayer', 'Character', 'Series', 'Submitted At', ...fields.map((f) => f.label)];
   const rows = submissions.map((sub) => {
@@ -77,6 +119,7 @@ export default function Submissions({ form, fields = [], submissions = [] }) {
                   {fields.map((f) => (
                     <th key={f.id}>{f.label}</th>
                   ))}
+                  <th style={{ width: 80 }}>Detail</th>
                 </tr>
               </thead>
               <tbody>
@@ -96,11 +139,26 @@ export default function Submissions({ form, fields = [], submissions = [] }) {
                     </td>
                     {fields.map((f) => {
                       const rawVal = sub.values ? sub.values[f.id] : null;
-                      let display  = rawVal ?? <span className="text-muted">—</span>;
-                      if (rawVal === '1') display = 'Yes';
-                      if (rawVal === '0') display = 'No';
+                      const isMedia = MEDIA_TYPES.includes(f.field_type);
+
+                      let display;
+                      if (isMedia && rawVal) {
+                        display = <MediaThumb url={rawVal} />;
+                      } else if (rawVal === '1') {
+                        display = 'Yes';
+                      } else if (rawVal === '0') {
+                        display = 'No';
+                      } else {
+                        display = rawVal ?? <span className="text-muted">—</span>;
+                      }
+
                       return <td key={f.id}>{display}</td>;
                     })}
+                    <td>
+                      <Link href={`/admin/forms/${form.id}/submissions/${sub.id}`}>
+                        <button className="btn btn-ghost btn-sm">View</button>
+                      </Link>
+                    </td>
                   </tr>
                 ))}
               </tbody>

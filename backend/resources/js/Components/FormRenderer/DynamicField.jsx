@@ -265,19 +265,49 @@ export default function DynamicField({ field, value, onChange, error }) {
 
   // ── File / Image upload ───────────────────────────────────────────────────
   if (fieldType === 'file' || fieldType === 'image') {
+    // Derive the effective byte limit (KB takes priority over MB if both set)
+    const maxBytes = options.max_size_kb
+      ? Number(options.max_size_kb) * 1024
+      : options.max_size_mb
+        ? Number(options.max_size_mb) * 1024 * 1024
+        : null;
+
+    const limitLabel = options.max_size_kb
+      ? `Max ${options.max_size_kb} KB`
+      : options.max_size_mb
+        ? `Max ${options.max_size_mb} MB`
+        : null;
+
+    function handleFileChange(e) {
+      const file = e.target.files?.[0];
+      if (!file) { onChange(null); return; }
+      if (maxBytes && file.size > maxBytes) {
+        alert(`File exceeds the maximum allowed size (${limitLabel}).`);
+        e.target.value = '';
+        onChange(null);
+        return;
+      }
+      onChange(file);
+    }
+
+    // Build accept string
+    const accept = fieldType === 'image'
+      ? 'image/*'
+      : options.accepted_formats || undefined;
+
     return (
       <div className="form-group">
         {labelEl}
         <input
           id={id}
           type="file"
-          accept={fieldType === 'image' ? 'image/*' : undefined}
-          onChange={(e) => onChange(e.target.files?.[0] || null)}
+          accept={accept}
+          onChange={handleFileChange}
         />
-        <span className="form-help">
-          {options.max_size_kb ? `Max ${options.max_size_kb} KB. ` : ''}
-          {helpText}
-        </span>
+        {limitLabel && (
+          <span className="form-help">{limitLabel}{helpText ? `. ${helpText}` : ''}</span>
+        )}
+        {!limitLabel && helpEl}
         {errorEl}
       </div>
     );
