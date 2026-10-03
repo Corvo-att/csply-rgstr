@@ -43,7 +43,7 @@ export default function AdminLogin() {
                 name="email"
                 value={data.email}
                 onChange={(e) => setData('email', e.target.value)}
-                placeholder="admin@egycon.com"
+                placeholder="name@egycon.com"
                 autoFocus
               />
             </div>
@@ -67,11 +67,6 @@ export default function AdminLogin() {
               {processing ? 'Signing in…' : 'Sign In'}
             </button>
           </form>
-
-          <hr className="divider" />
-          <p className="text-sm text-muted" style={{ textAlign: 'center' }}>
-            <em>Demo: admin@egycon.com / admin123</em>
-          </p>
         </div>
       </div>
     </div>

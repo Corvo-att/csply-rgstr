@@ -4,38 +4,69 @@ namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Models\Cosplayer;
-use App\Exports\CosplayersExport;
+use App\Models\Event;
+use App\Models\FormSubmission;
+use App\Support\CsvDownload;
+use Illuminate\Http\Request;
 use Inertia\Inertia;
-use Maatwebsite\Excel\Facades\Excel;
 
 class DashboardController extends Controller
 {
-    public function index()
+    public function index(Request $request)
     {
+        $cosplayers = $this->query($request)
+            ->latest()
+            ->paginate(25)
+            ->withQueryString()
+            ->through(fn (Cosplayer $c) => [
+                'id' => $c->id,
+                'name' => $c->user->name,
+                'email' => $c->user->email,
+                'character_name' => $c->character_name,
+                'series' => $c->series,
+                'experience_level' => $c->experience_level,
+                'created_at' => $c->created_at->format('Y-m-d'),
+            ]);
+
         return Inertia::render('Admin/Dashboard', [
             'stats' => [
-                'total_cosplayers'   => Cosplayer::count(),
-                'total_events'       => \App\Models\Event::count(),
-                'published_events'   => \App\Models\Event::where('status', 'published')->count(),
-                'total_submissions'  => \App\Models\FormSubmission::count(),
+                'total_cosplayers' => Cosplayer::count(),
+                'total_events' => Event::count(),
+                'published_events' => Event::where('status', 'published')->count(),
+                'total_submissions' => FormSubmission::count(),
             ],
-            'cosplayers' => Cosplayer::with('user')
-                ->latest()
-                ->get()
-                ->map(fn($c) => [
-                    'id'              => $c->id,
-                    'name'            => $c->user->name,
-                    'email'           => $c->user->email,
-                    'character_name'  => $c->character_name,
-                    'series'          => $c->series,
-                    'experience_level'=> $c->experience_level,
-                    'created_at'      => $c->created_at->format('Y-m-d'),
-                ]),
+            'cosplayers' => $cosplayers,
+            'filters' => $request->only('q'),
         ]);
     }
 
-    public function exportCosplayers()
+    public function exportCosplayers(Request $request)
     {
-        return Excel::download(new CosplayersExport, 'cosplayers.xlsx');
+        $rows = (function () use ($request) {
+            foreach ($this->query($request)->orderBy('id')->lazyById(200) as $c) {
+                yield [$c->id, $c->user->name, $c->user->email, $c->character_name, $c->series, $c->experience_level, $c->created_at->format('Y-m-d H:i')];
+            }
+        })();
+
+        return CsvDownload::make(
+            'cosplayers.csv',
+            ['ID', 'Name', 'Email', 'Character', 'Series', 'Experience', 'Registered At'],
+            $rows
+        );
+    }
+
+    private function query(Request $request)
+    {
+        $query = Cosplayer::with('user');
+
+        if ($q = trim((string) $request->query('q'))) {
+            $like = '%'.addcslashes($q, '%_\\').'%';
+
+            $query->where(fn ($w) => $w->where('character_name', 'like', $like)
+                ->orWhere('series', 'like', $like)
+                ->orWhereHas('user', fn ($u) => $u->where('name', 'like', $like)->orWhere('email', 'like', $like)));
+        }
+
+        return $query;
     }
 }
