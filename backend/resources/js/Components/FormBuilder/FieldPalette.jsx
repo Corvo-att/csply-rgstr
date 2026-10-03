@@ -1,24 +1,25 @@
 import React from 'react';
 
-// All supported field types grouped by category
+// All supported field types grouped by category.
+// (The "types" must match App\Models\FormField::TYPES on the server - unknown types are rejected on save.)
 export const FIELD_TYPES = [
   {
     category: 'Text',
     types: [
       { type: 'text',     label: 'Text',          icon: 'Tt' },
-      { type: 'textarea', label: 'Textarea',       icon: 'Tx' },
-      { type: 'email',    label: 'Email',          icon: '@' },
-      { type: 'url',      label: 'URL',            icon: '://' },
-      { type: 'password', label: 'Password',       icon: '**' },
-      { type: 'phone',    label: 'Phone / Tel',    icon: '+#' },
+      { type: 'textarea', label: 'Textarea',      icon: 'Tx' },
+      { type: 'email',    label: 'Email',         icon: '@' },
+      { type: 'url',      label: 'URL',           icon: '://' },
+      { type: 'password', label: 'Password',      icon: '**' },
+      { type: 'phone',    label: 'Phone / Tel',   icon: '+#' },
     ],
   },
   {
     category: 'Numeric',
     types: [
-      { type: 'number', label: 'Number',          icon: '123' },
-      { type: 'range',  label: 'Range / Slider',  icon: '—o' },
-      { type: 'rating', label: 'Rating (Stars)',  icon: '★★' },
+      { type: 'number', label: 'Number',         icon: '123' },
+      { type: 'range',  label: 'Range / Slider', icon: '—o' },
+      { type: 'rating', label: 'Rating (Stars)', icon: '★★' },
     ],
   },
   {
@@ -32,33 +33,31 @@ export const FIELD_TYPES = [
   {
     category: 'Choice',
     types: [
-      { type: 'dropdown',       label: 'Dropdown',           icon: '▾' },
-      { type: 'radio',          label: 'Radio Group',        icon: '◎' },
-      { type: 'checkbox',       label: 'Checkbox (single)',  icon: '☐' },
-      { type: 'checkbox_group', label: 'Checkbox Group',     icon: '☐☐' },
-      { type: 'multiselect',    label: 'Multi-Select',       icon: '▾+' },
-      { type: 'toggle',         label: 'Toggle / Switch',    icon: '○●' },
+      { type: 'dropdown',       label: 'Dropdown',          icon: '▾' },
+      { type: 'radio',          label: 'Radio Group',       icon: '◎' },
+      { type: 'checkbox',       label: 'Checkbox (single)', icon: '☐' },
+      { type: 'checkbox_group', label: 'Checkbox Group',    icon: '☐☐' },
+      { type: 'multiselect',    label: 'Multi-Select',      icon: '▾+' },
+      { type: 'toggle',         label: 'Toggle / Switch',   icon: '○●' },
     ],
   },
   {
     category: 'Media',
     types: [
-      { type: 'file',      label: 'File Upload',  icon: '↑' },
-      { type: 'image',     label: 'Image Upload', icon: '⬚' },
-      { type: 'video',     label: 'Video Upload', icon: '▶' },
-      { type: 'color',     label: 'Color Picker', icon: '▣' },
-      { type: 'signature', label: 'Signature Pad', icon: '~' },
+      { type: 'file',  label: 'File Upload',  icon: '↑' },
+      { type: 'image', label: 'Image Upload', icon: '⬚' },
+      { type: 'video', label: 'Video Upload', icon: '▶' },
+      { type: 'color', label: 'Color Picker', icon: '▣' },
     ],
   },
   {
     category: 'Special',
     types: [
-      { type: 'richtext',     label: 'Rich Text / WYSIWYG',  icon: 'B/I' },
-      { type: 'address',      label: 'Address (composite)',  icon: '⊞' },
-      { type: 'hidden',       label: 'Hidden Field',         icon: '…' },
-      { type: 'section',      label: 'Section Header',       icon: '—' },
-      { type: 'instructions', label: 'Instructions Block',   icon: 'i' },
-      { type: 'terms',        label: 'Terms & Conditions',   icon: '§' },
+      { type: 'address',      label: 'Address (composite)', icon: '⊞' },
+      { type: 'hidden',       label: 'Hidden Field',        icon: '…' },
+      { type: 'section',      label: 'Section Header',      icon: '—' },
+      { type: 'instructions', label: 'Instructions Block',  icon: 'i' },
+      { type: 'terms',        label: 'Terms & Conditions',  icon: '§' },
     ],
   },
 ];
@@ -83,17 +82,21 @@ export default function FieldPalette({ onAddField }) {
           {group.types.map((ft) => (
             <button
               key={ft.type}
+              type="button"
               className="palette-btn"
               onClick={() => onAddField(ft.type)}
               title={`Add ${ft.label} field`}
             >
-              <span className="palette-btn-icon" style={{
-                fontFamily: 'var(--font-display)',
-                fontSize: '0.7rem',
-                fontWeight: 700,
-                color: 'var(--color-primary)',
-                letterSpacing: '0.02em',
-              }}>
+              <span
+                className="palette-btn-icon"
+                style={{
+                  fontFamily: 'var(--font-display)',
+                  fontSize: '0.7rem',
+                  fontWeight: 700,
+                  color: 'var(--color-primary)',
+                  letterSpacing: '0.02em',
+                }}
+              >
                 {ft.icon}
               </span>
               {ft.label}

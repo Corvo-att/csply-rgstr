@@ -2,7 +2,9 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\Cosplayer;
+use App\Http\Controllers\Concerns\ThrottlesLogins;
+use App\Http\Requests\LoginRequest;
+use App\Http\Requests\RegisterRequest;
 use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -11,48 +13,42 @@ use Inertia\Inertia;
 
 class AuthController extends Controller
 {
-    // ── Show login form ───────────────────────────────────────────────────────
+    use ThrottlesLogins;
+
     public function showLogin()
     {
         return Inertia::render('Auth/Login');
     }
 
-    // ── Handle cosplayer login ────────────────────────────────────────────────
-    public function login(Request $request)
+    public function login(LoginRequest $request)
     {
-        $credentials = $request->validate([
-            'email'    => ['required', 'email'],
-            'password' => ['required', 'string'],
-        ]);
+        $this->ensureNotThrottled($request, 'user');
 
-        if (! Auth::attempt($credentials, $request->boolean('remember'))) {
+        if (! Auth::attempt($request->validated(), $request->boolean('remember'))) {
+            $this->hitThrottle($request, 'user');
+
             return back()->withErrors(['email' => 'Invalid email or password.'])->onlyInput('email');
         }
 
+        $this->clearThrottle($request, 'user');
         $request->session()->regenerate();
 
         return redirect()->intended(route('cosplay.profile'));
     }
 
-    // ── Show registration form ────────────────────────────────────────────────
     public function showRegister()
     {
         return Inertia::render('Auth/Register');
     }
 
-    // ── Handle cosplayer registration ─────────────────────────────────────────
-    public function register(Request $request)
+    public function register(RegisterRequest $request)
     {
-        $validated = $request->validate([
-            'name'                  => ['required', 'string', 'max:255'],
-            'email'                 => ['required', 'string', 'email', 'max:255', 'unique:users,email'],
-            'password'              => ['required', 'string', 'min:6', 'confirmed'],
-        ]);
+        $data = $request->validated();
 
         $user = User::create([
-            'name'     => $validated['name'],
-            'email'    => $validated['email'],
-            'password' => Hash::make($validated['password']),
+            'name' => $data['name'],
+            'email' => $data['email'],
+            'password' => Hash::make($data['password']),
         ]);
 
         Auth::login($user);
@@ -61,7 +57,6 @@ class AuthController extends Controller
         return redirect()->route('cosplay.register');
     }
 
-    // ── Logout ────────────────────────────────────────────────────────────────
     public function logout(Request $request)
     {
         Auth::logout();

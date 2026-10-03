@@ -2,78 +2,85 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Requests\CosplayerRequest;
 use App\Models\Cosplayer;
 use App\Models\Event;
-use Illuminate\Http\Request;
+use App\Models\FormSubmission;
 use Illuminate\Support\Facades\Auth;
 use Inertia\Inertia;
 
 class CosplayerController extends Controller
 {
-    // ── Show cosplay registration form ────────────────────────────────────────
     public function create()
     {
-        $cosplayer = Cosplayer::where('user_id', Auth::id())->first();
-
         return Inertia::render('Cosplay/Register', [
-            'cosplayer' => $cosplayer,
+            'cosplayer' => Cosplayer::where('user_id', Auth::id())->first(),
         ]);
     }
 
-    // ── Save / update cosplay profile ─────────────────────────────────────────
-    public function store(Request $request)
+    public function store(CosplayerRequest $request)
     {
-        $validated = $request->validate([
-            'character_name'   => ['required', 'string', 'max:255'],
-            'series'           => ['required', 'string', 'max:255'],
-            'experience_level' => ['required', 'string', 'in:beginner,intermediate,advanced,professional'],
-            'bio'              => ['nullable', 'string'],
-        ]);
-
-        Cosplayer::updateOrCreate(
-            ['user_id' => Auth::id()],
-            $validated
-        );
+        Cosplayer::updateOrCreate(['user_id' => Auth::id()], $request->validated());
 
         return redirect()->route('cosplay.profile');
     }
 
-    // ── Show cosplayer profile ────────────────────────────────────────────────
     public function profile()
     {
-        $user      = Auth::user();
+        $user = Auth::user();
         $cosplayer = Cosplayer::where('user_id', $user->id)->first();
 
-        // Published events with their active forms
+        // Published events with their active forms (eager loaded: 2 queries, not 1 per event)
         $events = Event::where('status', 'published')
-            ->with(['forms' => fn($q) => $q->where('is_active', true)])
+            ->with(['forms' => fn ($q) => $q->where('is_active', true)])
             ->latest()
-            ->get()
-            ->map(fn($ev) => [
-                'id'          => $ev->id,
-                'name'        => $ev->name,
+            ->get();
+
+        // This cosplayer's existing submissions, one query for all forms
+        $submissions = $cosplayer
+            ? FormSubmission::where('cosplayer_id', $cosplayer->id)->get()->keyBy('form_id')
+            : collect();
+
+        $events = $events->map(function ($ev) use ($submissions) {
+            $ev->forms->each->setRelation('event', $ev);
+
+            return [
+                'id' => $ev->id,
+                'name' => $ev->name,
                 'description' => $ev->description,
-                'location'    => $ev->location,
-                'starts_at'   => $ev->starts_at,
-                'ends_at'     => $ev->ends_at,
-                'forms'       => $ev->forms->map(fn($f) => [
-                    'id'          => $f->id,
-                    'name'        => $f->name,
-                    'description' => $f->description,
-                    'is_active'   => $f->is_active,
-                    'event_id'    => $f->event_id,
-                ]),
-            ]);
+                'location' => $ev->location,
+                'starts_at' => $ev->starts_at,
+                'ends_at' => $ev->ends_at,
+                'forms' => $ev->forms->map(function ($f) use ($submissions) {
+                    $sub = $submissions->get($f->id);
+
+                    return [
+                        'id' => $f->id,
+                        'name' => $f->name,
+                        'description' => $f->description,
+                        'is_active' => $f->is_active,
+                        'event_id' => $f->event_id,
+                        'closes_at' => $f->closes_at,
+                        'closed_reason' => $sub ? null : $f->closedReason(),
+                        'submission' => $sub ? [
+                            'entry_number' => $sub->entry_number,
+                            'status' => $sub->status,
+                            'submitted_at' => $sub->submitted_at,
+                        ] : null,
+                    ];
+                }),
+            ];
+        });
 
         return Inertia::render('Cosplay/Profile', [
-            'user'      => [
-                'id'         => $user->id,
-                'name'       => $user->name,
-                'email'      => $user->email,
+            'user' => [
+                'id' => $user->id,
+                'name' => $user->name,
+                'email' => $user->email,
                 'created_at' => $user->created_at->toDateString(),
             ],
             'cosplayer' => $cosplayer,
-            'events'    => $events,
+            'events' => $events,
         ]);
     }
 }
