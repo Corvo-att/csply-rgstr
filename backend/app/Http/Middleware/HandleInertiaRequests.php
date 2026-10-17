@@ -59,6 +59,10 @@ class HandleInertiaRequests extends Middleware
                 'success' => fn() => $request->session()->get('success'),
                 'error'   => fn() => $request->session()->get('error'),
             ],
+
+            'googleConnection' => fn() => $adminUser ? \App\Models\GoogleConnection::where('admin_id', $adminUser->id)
+                ->whereNull('revoked_at')
+                ->first(['id', 'email', 'avatar_url', 'created_at', 'token_expires_at']) : null,
         ];
     }
 }

@@ -3,12 +3,13 @@ import { Link, router } from '@inertiajs/react';
 import AdminLayout from '../../../Layouts/AdminLayout.jsx';
 import FieldPalette, { getFieldMeta } from '../../../Components/FormBuilder/FieldPalette.jsx';
 import FieldEditor from '../../../Components/FormBuilder/FieldEditor.jsx';
+import SheetSyncModal from '../../../Components/Sheets/SheetSyncModal.jsx';
 
 function slugify(text) {
   return text.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/(^_|_$)/g, '');
 }
 
-export default function Builder({ event, form, fields: initialFields = [] }) {
+export default function Builder({ event, form, fields: initialFields = [], sheetLink = null }) {
   const [fields, setFields] = useState(
     initialFields.map((f, i) => ({
       id:              f.id,
@@ -24,9 +25,10 @@ export default function Builder({ event, form, fields: initialFields = [] }) {
     }))
   );
 
-  const [selectedId,    setSelectedId]    = useState(null);
-  const [dragOverIndex, setDragOverIndex] = useState(null);
-  const [saved,         setSaved]         = useState(false);
+  const [selectedId,        setSelectedId]        = useState(null);
+  const [dragOverIndex,     setDragOverIndex]     = useState(null);
+  const [saved,             setSaved]             = useState(false);
+  const [sheetsModalOpen,   setSheetsModalOpen]   = useState(false);
 
   function flashSaved() {
     setSaved(true);
@@ -36,6 +38,7 @@ export default function Builder({ event, form, fields: initialFields = [] }) {
   function syncFields(updated) {
     setFields(updated);
     const payload = updated.map((f, i) => ({
+      id:          typeof f.id === 'number' ? f.id : null,
       label:       f.label,
       field_key:   f.fieldKey,
       field_type:  f.fieldType,
@@ -120,8 +123,26 @@ export default function Builder({ event, form, fields: initialFields = [] }) {
           <div className="flex gap-1 items-center">
             {saved && <span className="text-sm" style={{ color: 'var(--color-success)' }}>Saved ✓</span>}
             <span className="text-sm text-muted">{fields.length} field{fields.length !== 1 ? 's' : ''}</span>
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              onClick={() => setSheetsModalOpen(true)}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: '0.45rem' }}
+            >
+              <span style={{
+                display: 'inline-block',
+                width: '8px',
+                height: '8px',
+                borderRadius: '50%',
+                backgroundColor: sheetLink ? (sheetLink.sync_enabled ? 'var(--color-success)' : 'var(--color-warning)') : 'var(--color-text-dim)',
+              }} />
+              <span>Google Sheets</span>
+            </button>
             <Link href={`/admin/forms/${form.id}/submissions`}>
               <button className="btn btn-ghost btn-sm">Submissions</button>
+            </Link>
+            <Link href={`/admin/forms/${form.id}/judging`}>
+              <button className="btn btn-ghost btn-sm">⚖️ Judging</button>
             </Link>
           </div>
         </div>
@@ -201,6 +222,14 @@ export default function Builder({ event, form, fields: initialFields = [] }) {
           </div>
         </div>
       </div>
+
+      <SheetSyncModal
+        isOpen={sheetsModalOpen}
+        onClose={() => setSheetsModalOpen(false)}
+        form={form}
+        event={event}
+        initialLink={sheetLink}
+      />
     </AdminLayout>
   );
 }

@@ -27,4 +27,9 @@ class Form extends Model
     {
         return $this->hasMany(FormSubmission::class);
     }
+
+    public function sheetLink()
+    {
+        return $this->hasOne(FormSheetLink::class);
+    }
 }

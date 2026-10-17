@@ -1,5 +1,5 @@
-import React from 'react';
-import { Link } from '@inertiajs/react';
+import React, { useState } from 'react';
+import { Link, router } from '@inertiajs/react';
 import AdminLayout from '../../../Layouts/AdminLayout.jsx';
 
 const MEDIA_TYPES = ['file', 'image', 'video'];
@@ -71,6 +71,23 @@ function exportSubmissionsCSV(form, fields, submissions) {
 }
 
 export default function Submissions({ form, fields = [], submissions = [] }) {
+  const [showImportModal, setShowImportModal] = useState(false);
+  const [importFile, setImportFile] = useState(null);
+  const [uploading, setUploading] = useState(false);
+
+  const handleUpload = (e) => {
+    e.preventDefault();
+    if (!importFile) return;
+
+    setUploading(true);
+    const formData = new FormData();
+    formData.append('file', importFile);
+
+    router.post(`/admin/forms/${form.id}/import`, formData, {
+      onFinish: () => setUploading(false),
+    });
+  };
+
   return (
     <AdminLayout>
       <div className="page-content">
@@ -88,12 +105,21 @@ export default function Submissions({ form, fields = [], submissions = [] }) {
               {form.name} &mdash; {submissions.length} response{submissions.length !== 1 ? 's' : ''} recorded
             </p>
           </div>
-          <div className="flex gap-1">
+          <div className="flex gap-2">
             <Link href={`/admin/events/${form.event_id}/forms/${form.id}/builder`}>
               <button className="btn btn-ghost btn-sm">Builder</button>
             </Link>
+            <Link href={`/admin/forms/${form.id}/judging`}>
+              <button className="btn btn-secondary btn-sm">⚖️ Judging Sheets</button>
+            </Link>
             <button
-              className="btn btn-secondary"
+              className="btn btn-secondary btn-sm"
+              onClick={() => setShowImportModal(true)}
+            >
+              📥 Import Excel
+            </button>
+            <button
+              className="btn btn-secondary btn-sm"
               onClick={() => exportSubmissionsCSV(form, fields, submissions)}
               disabled={submissions.length === 0}
             >
@@ -101,6 +127,84 @@ export default function Submissions({ form, fields = [], submissions = [] }) {
             </button>
           </div>
         </div>
+
+        {/* Import Modal */}
+        {showImportModal && (
+          <div
+            className="modal-backdrop"
+            style={{
+              position: 'fixed',
+              inset: 0,
+              backgroundColor: 'rgba(0,0,0,0.6)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              zIndex: 9999,
+              backdropFilter: 'blur(3px)',
+            }}
+          >
+            <div className="card" style={{ width: '100%', maxWidth: 480, padding: '1.75rem' }}>
+              <div className="flex justify-between items-center mb-3">
+                <h3 style={{ margin: 0, fontSize: '1.2rem', fontWeight: 600 }}>
+                  Import Submissions from Excel
+                </h3>
+                <button
+                  type="button"
+                  className="btn btn-ghost btn-sm"
+                  onClick={() => setShowImportModal(false)}
+                >
+                  ✕
+                </button>
+              </div>
+
+              <p className="text-muted text-sm mb-4">
+                Upload an <code>.xlsx</code>, <code>.xls</code>, or <code>.csv</code> file. You will be able to review, map columns, and fix validation issues before importing.
+              </p>
+
+              <div className="mb-4 p-3" style={{ background: 'var(--color-bg)', borderRadius: 8, border: '1px solid var(--color-border)' }}>
+                <span className="text-xs text-muted block mb-1">Need a template?</span>
+                <a
+                  href={`/admin/forms/${form.id}/import/template`}
+                  className="text-sm font-semibold"
+                  style={{ color: 'var(--color-primary)' }}
+                >
+                  📄 Download pre-formatted Excel template
+                </a>
+              </div>
+
+              <form onSubmit={handleUpload}>
+                <div className="form-group mb-4">
+                  <label className="form-label text-sm font-medium">Select Spreadsheet File</label>
+                  <input
+                    type="file"
+                    accept=".xlsx,.xls,.csv"
+                    className="form-control"
+                    onChange={(e) => setImportFile(e.target.files[0] || null)}
+                    required
+                  />
+                </div>
+
+                <div className="flex justify-end gap-2">
+                  <button
+                    type="button"
+                    className="btn btn-secondary"
+                    onClick={() => setShowImportModal(false)}
+                    disabled={uploading}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    className="btn btn-primary"
+                    disabled={!importFile || uploading}
+                  >
+                    {uploading ? 'Uploading & Parsing...' : 'Next: Map Columns →'}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
 
         {submissions.length === 0 ? (
           <div className="empty-state card">

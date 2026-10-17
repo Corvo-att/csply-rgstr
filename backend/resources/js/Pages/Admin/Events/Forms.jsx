@@ -107,6 +107,9 @@ export default function EventForms({ event, forms = [] }) {
                   <Link href={`/admin/forms/${f.id}/submissions`} style={{ flex: 1 }}>
                     <button className="btn btn-ghost btn-sm w-full">Submissions</button>
                   </Link>
+                  <Link href={`/admin/forms/${f.id}/judging`} style={{ flex: 1 }}>
+                    <button className="btn btn-secondary btn-sm w-full">Judging</button>
+                  </Link>
                   <button
                     id={`delete-form-${f.id}`}
                     className="btn btn-danger btn-sm"

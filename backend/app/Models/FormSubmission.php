@@ -6,7 +6,7 @@ use Illuminate\Database\Eloquent\Model;
 
 class FormSubmission extends Model
 {
-    protected $fillable = ['form_id', 'cosplayer_id', 'submitted_at'];
+    protected $fillable = ['form_id', 'cosplayer_id', 'source', 'import_batch_id', 'submitted_at'];
 
     protected function casts(): array
     {
@@ -26,5 +26,10 @@ class FormSubmission extends Model
     public function values()
     {
         return $this->hasMany(FormSubmissionValue::class);
+    }
+
+    public function sheetSyncRecords()
+    {
+        return $this->hasMany(SheetSyncRecord::class);
     }
 }

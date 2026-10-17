@@ -35,4 +35,12 @@ return [
         ],
     ],
 
+    'google' => [
+        'client_id'      => env('GOOGLE_CLIENT_ID'),
+        'client_secret'  => env('GOOGLE_CLIENT_SECRET'),
+        'redirect_uri'   => env('GOOGLE_REDIRECT_URI'),
+        'picker_api_key' => env('GOOGLE_PICKER_API_KEY'),
+        'app_id'         => env('GOOGLE_APP_ID'),
+    ],
+
 ];

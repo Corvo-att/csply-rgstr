@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Form;
 use App\Models\FormField;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
 class FormFieldController extends Controller
@@ -68,6 +69,7 @@ class FormFieldController extends Controller
     {
         $request->validate([
             'fields'              => ['required', 'array'],
+            'fields.*.id'         => ['nullable'],
             'fields.*.label'      => ['required', 'string', 'max:255'],
             'fields.*.field_key'  => ['required', 'string'],
             'fields.*.field_type' => ['required', 'string'],
@@ -75,20 +77,44 @@ class FormFieldController extends Controller
             'fields.*.sort_order' => ['integer'],
         ]);
 
-        $form->fields()->delete();
+        // Upsert instead of delete + recreate: field IDs must stay stable so
+        // stored submission values (and future Google Sheet column mappings)
+        // are never lost when the builder is saved.
+        DB::transaction(function () use ($request, $form) {
+            $existing = $form->fields()->get();
+            $keptIds  = [];
 
-        foreach ($request->fields as $idx => $f) {
-            FormField::create([
-                'form_id'    => $form->id,
-                'label'      => $f['label'],
-                'field_key'  => $f['field_key'] ?: Str::snake($f['label']),
-                'field_type' => $f['field_type'],
-                'options'    => $f['options'] ?? [],
-                'is_required'=> (bool) ($f['is_required'] ?? false),
-                'sort_order' => (int) ($f['sort_order'] ?? $idx + 1),
-                'help_text'  => $f['help_text'] ?? null,
-            ]);
-        }
+            foreach ($request->fields as $idx => $f) {
+                $key = $f['field_key'] ?: Str::snake($f['label']);
+
+                $field = null;
+                if (isset($f['id']) && is_numeric($f['id'])) {
+                    $field = $existing->firstWhere('id', (int) $f['id']);
+                }
+                $field ??= $existing->firstWhere('field_key', $key);
+
+                $attrs = [
+                    'label'       => $f['label'],
+                    'field_key'   => $key,
+                    'field_type'  => $f['field_type'],
+                    'options'     => $f['options'] ?? [],
+                    'is_required' => (bool) ($f['is_required'] ?? false),
+                    'sort_order'  => (int) ($f['sort_order'] ?? $idx + 1),
+                    'help_text'   => $f['help_text'] ?? null,
+                ];
+
+                if ($field) {
+                    $field->update($attrs);
+                } else {
+                    $field = FormField::create($attrs + ['form_id' => $form->id]);
+                }
+
+                $keptIds[] = $field->id;
+            }
+
+            // Only fields the admin actually removed get deleted.
+            $form->fields()->whereNotIn('id', $keptIds)->delete();
+        });
 
         return back()->with('success', 'Fields saved.');
     }

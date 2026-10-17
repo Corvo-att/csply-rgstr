@@ -7,7 +7,7 @@ use App\Models\Event;
 use App\Models\Form;
 use App\Models\FormSubmission;
 use App\Models\FormSubmissionValue;
-use App\Services\ImageOptimizer;
+use App\Services\SubmissionWriter;
 use Illuminate\Http\Request;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Auth;
@@ -17,7 +17,7 @@ use Inertia\Inertia;
 
 class FormController extends Controller
 {
-    public function __construct(private readonly ImageOptimizer $optimizer) {}
+    public function __construct(private readonly SubmissionWriter $writer) {}
 
     /**
      * Show the form fill page.
@@ -85,85 +85,9 @@ class FormController extends Controller
 
         $request->validate($rules);
 
-        // ── Create submission record ───────────────────────────────────────────
-        $submission = FormSubmission::create([
-            'form_id'      => $form->id,
-            'cosplayer_id' => $cosplayer->id,
-            'submitted_at' => now(),
-        ]);
-
-        // ── Process each field value ───────────────────────────────────────────
-        foreach ($request->values as $fieldId => $value) {
-            $storeValue = $value;
-
-            if (is_array($value)) {
-                $storeValue = implode(', ', $value);
-
-            } elseif ($value instanceof UploadedFile) {
-                $field     = $fieldMap->get($fieldId);
-                $fieldType = $field?->field_type ?? 'file';
-                $mime      = $value->getMimeType() ?? '';
-
-                $isImage = ($fieldType === 'image')
-                    || ($fieldType === 'file' && ImageOptimizer::isOptimisableImage($mime));
-
-                if ($isImage) {
-                    // ── Image optimisation pipeline ────────────────────────────
-                    try {
-                        $result     = $this->optimizer->optimize($value);
-                        $storeValue = $result['url'];
-
-                        $savedKb = round(($result['originalBytes'] - $result['savedBytes']) / 1024);
-                        $origKb  = round($result['originalBytes'] / 1024);
-                        $finalKb = round($result['savedBytes']    / 1024);
-
-                        Log::info(sprintf(
-                            '[ImageOptimizer] field=%s | original=%d KB → optimised=%d KB (saved %d KB, %.0f%%)',
-                            $fieldId,
-                            $origKb,
-                            $finalKb,
-                            $savedKb,
-                            $origKb > 0 ? ($savedKb / $origKb * 100) : 0
-                        ));
-                    } catch (\Throwable $e) {
-                        // Fallback: store original so the submission is never lost
-                        Log::warning('[ImageOptimizer] Failed, storing original: ' . $e->getMessage());
-                        $storeValue = $this->storeRaw($value);
-                    }
-                } else {
-                    // Video / non-image file — store as-is
-                    $storeValue = $this->storeRaw($value);
-                }
-            }
-
-            FormSubmissionValue::create([
-                'form_submission_id' => $submission->id,
-                'form_field_id'      => $fieldId,
-                'value'              => $storeValue,
-            ]);
-        }
+        // ── Persist atomically via the shared writer (also fires the sync event) ─
+        $this->writer->write($form, $cosplayer, $request->values);
 
         return redirect()->route('cosplay.profile')->with('success', 'Form submitted successfully!');
-    }
-
-    // ── Private helpers ────────────────────────────────────────────────────────
-
-    /**
-     * Move an uploaded file to public/uploads/ without any transformation.
-     * Returns the public URL.
-     */
-    private function storeRaw(UploadedFile $file): string
-    {
-        $ext         = $file->getClientOriginalExtension();
-        $fileName    = Str::random(24) . '.' . $ext;
-        $destination = public_path('uploads');
-
-        if (! file_exists($destination)) {
-            mkdir($destination, 0777, true);
-        }
-
-        $file->move($destination, $fileName);
-
-        return url('uploads/' . $fileName);
     }
 }

@@ -15,9 +15,10 @@ class FormBuilderController extends Controller
         abort_if($form->event_id !== $event->id, 404);
 
         return Inertia::render('Admin/Forms/Builder', [
-            'event'  => $event,
-            'form'   => $form,
-            'fields' => $form->fields()->get(),
+            'event'     => $event,
+            'form'      => $form,
+            'fields'    => $form->fields()->get(),
+            'sheetLink' => $form->sheetLink()->with('mappings')->first(),
         ]);
     }
 

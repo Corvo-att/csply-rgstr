@@ -7,10 +7,13 @@ use App\Http\Controllers\FormController;
 use App\Http\Controllers\UploadController;
 use App\Http\Controllers\Admin\AdminAuthController;
 use App\Http\Controllers\Admin\AdminFormController;
+use App\Http\Controllers\Admin\FormSheetLinkController;
+use App\Http\Controllers\Admin\GoogleAuthController;
 use App\Http\Controllers\Admin\DashboardController;
 use App\Http\Controllers\Admin\EventController as AdminEventController;
 use App\Http\Controllers\Admin\FormBuilderController;
 use App\Http\Controllers\Admin\FormFieldController;
+use App\Http\Controllers\Admin\ImportController;
 use App\Http\Controllers\Admin\SubmissionController as AdminSubmissionController;
 use Illuminate\Support\Facades\Route;
 
@@ -78,5 +81,35 @@ Route::prefix('admin')->name('admin.')->group(function () {
         Route::get('forms/{form}/submissions',              [AdminSubmissionController::class, 'index'])->name('forms.submissions');
         Route::get('forms/{form}/submissions/export',       [AdminSubmissionController::class, 'export'])->name('forms.submissions.export');
         Route::get('forms/{form}/submissions/{submission}', [AdminSubmissionController::class, 'show'])->name('forms.submissions.show');
+
+        // Google Account Connection
+        Route::get('google/connect',                [GoogleAuthController::class, 'redirect'])->name('google.connect');
+        Route::get('google/callback',               [GoogleAuthController::class, 'callback'])->name('google.callback');
+        Route::delete('google/connections/{conn}',  [GoogleAuthController::class, 'disconnect'])->name('google.disconnect');
+        Route::get('google/picker-token',           [GoogleAuthController::class, 'pickerToken'])->name('google.picker-token');
+
+        // Form Google Sheet Integration
+        Route::get('forms/{form}/sheet',          [FormSheetLinkController::class, 'show'])->name('forms.sheet.show');
+        Route::post('forms/{form}/sheet',         [FormSheetLinkController::class, 'store'])->name('forms.sheet.store');
+        Route::post('forms/{form}/sheet/headers', [FormSheetLinkController::class, 'headers'])->name('forms.sheet.headers');
+        Route::put('forms/{form}/sheet/mappings', [FormSheetLinkController::class, 'updateMappings'])->name('forms.sheet.mappings');
+        Route::patch('forms/{form}/sheet/toggle', [FormSheetLinkController::class, 'toggle'])->name('forms.sheet.toggle');
+        Route::post('forms/{form}/sheet/resync',  [FormSheetLinkController::class, 'resync'])->name('forms.sheet.resync');
+        Route::delete('forms/{form}/sheet',       [FormSheetLinkController::class, 'destroy'])->name('forms.sheet.destroy');
+
+        // Excel / CSV Imports
+        Route::get('forms/{form}/import/template', [ImportController::class, 'template'])->name('forms.import.template');
+        Route::post('forms/{form}/import',         [ImportController::class, 'store'])->name('forms.import.store');
+        Route::get('imports/{batch}',              [ImportController::class, 'show'])->name('imports.show');
+        Route::put('imports/{batch}/mapping',      [ImportController::class, 'updateMapping'])->name('imports.mapping');
+        Route::put('imports/rows/{row}',           [ImportController::class, 'updateRow'])->name('imports.row');
+        Route::post('imports/{batch}/commit',      [ImportController::class, 'commit'])->name('imports.commit');
+        Route::post('imports/{batch}/rollback',    [ImportController::class, 'rollback'])->name('imports.rollback');
+        Route::get('imports/{batch}/errors',       [ImportController::class, 'errorReport'])->name('imports.errors');
+
+        // Judge Google Sheet / Offline Sheet Generator
+        Route::get('forms/{form}/judging',               [\App\Http\Controllers\Admin\JudgingController::class, 'index'])->name('forms.judging');
+        Route::post('forms/{form}/judging/rubrics',      [\App\Http\Controllers\Admin\JudgingController::class, 'saveRubric'])->name('forms.judging.rubrics.save');
+        Route::post('forms/{form}/judging/generate',     [\App\Http\Controllers\Admin\JudgingController::class, 'generate'])->name('forms.judging.generate');
     });
 });

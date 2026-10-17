@@ -11,7 +11,10 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
-        //
+        $this->app->bind(
+            \App\Services\GoogleSheets\SheetsGateway::class,
+            \App\Services\GoogleSheets\GoogleSheetsGateway::class
+        );
     }
 
     /**
@@ -19,6 +22,13 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
-        //
+        \Illuminate\Support\Facades\Event::listen(
+            \App\Events\FormSubmissionCreated::class,
+            \App\Listeners\QueueSheetSync::class
+        );
+
+        \App\Models\FormField::observe(
+            \App\Observers\FormFieldObserver::class
+        );
     }
 }

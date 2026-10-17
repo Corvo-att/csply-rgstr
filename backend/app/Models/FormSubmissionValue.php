@@ -6,7 +6,7 @@ use Illuminate\Database\Eloquent\Model;
 
 class FormSubmissionValue extends Model
 {
-    protected $fillable = ['form_submission_id', 'form_field_id', 'value'];
+    protected $fillable = ['form_submission_id', 'form_field_id', 'field_key_snapshot', 'value'];
 
     public function submission()
     {
