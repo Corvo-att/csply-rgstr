@@ -1,13 +1,11 @@
-import React, { useState } from 'react';
+import React from 'react';
+import UploadField from './UploadField.jsx';
 
 // Renders one form field based on field.fieldType
 export default function DynamicField({ field, value, onChange, error }) {
   const { fieldType, label, helpText, isRequired, options = {} } = field;
 
   const id = `field-${field.id}`;
-
-  // Video upload state (must be declared unconditionally per React rules)
-  const [videoPreviewUrl, setVideoPreviewUrl] = useState(null);
 
   const labelEl = (
     <label htmlFor={id}>
@@ -29,10 +27,13 @@ export default function DynamicField({ field, value, onChange, error }) {
   }
 
   // ── Static Instructions ────────────────────────────────────────────────────
+  // Plain text only (line breaks kept). Never render admin-entered text as HTML.
   if (fieldType === 'instructions') {
+    const body = options.text || options.html || '';
     return (
       <div className="alert alert-info" style={{ marginBottom: '0.5rem' }}>
-        <span dangerouslySetInnerHTML={{ __html: options.html || label }} />
+        {label && <strong style={{ display: 'block', marginBottom: body ? '0.25rem' : 0 }}>{label}</strong>}
+        {body && <span style={{ whiteSpace: 'pre-wrap' }}>{body}</span>}
       </div>
     );
   }
@@ -263,198 +264,9 @@ export default function DynamicField({ field, value, onChange, error }) {
     );
   }
 
-  // ── File / Image upload ───────────────────────────────────────────────────
-  if (fieldType === 'file' || fieldType === 'image') {
-    // Derive the effective byte limit (KB takes priority over MB if both set)
-    const maxBytes = options.max_size_kb
-      ? Number(options.max_size_kb) * 1024
-      : options.max_size_mb
-        ? Number(options.max_size_mb) * 1024 * 1024
-        : null;
-
-    const limitLabel = options.max_size_kb
-      ? `Max ${options.max_size_kb} KB`
-      : options.max_size_mb
-        ? `Max ${options.max_size_mb} MB`
-        : null;
-
-    function handleFileChange(e) {
-      const file = e.target.files?.[0];
-      if (!file) { onChange(null); return; }
-      if (maxBytes && file.size > maxBytes) {
-        alert(`File exceeds the maximum allowed size (${limitLabel}).`);
-        e.target.value = '';
-        onChange(null);
-        return;
-      }
-      onChange(file);
-    }
-
-    // Build accept string
-    const accept = fieldType === 'image'
-      ? 'image/*'
-      : options.accepted_formats || undefined;
-
-    return (
-      <div className="form-group">
-        {labelEl}
-        <input
-          id={id}
-          type="file"
-          accept={accept}
-          onChange={handleFileChange}
-        />
-        {limitLabel && (
-          <span className="form-help">{limitLabel}{helpText ? `. ${helpText}` : ''}</span>
-        )}
-        {!limitLabel && helpEl}
-        {errorEl}
-      </div>
-    );
-  }
-
-  // ── Video Upload ──────────────────────────────────────────────────────────
-  if (fieldType === 'video') {
-    function handleVideoChange(e) {
-      const file = e.target.files?.[0];
-      if (!file) { setVideoPreviewUrl(null); onChange(null); return; }
-
-      // Client-side size guard
-      if (options.max_size_mb && file.size > options.max_size_mb * 1024 * 1024) {
-        alert(`Video exceeds the maximum allowed size of ${options.max_size_mb} MB.`);
-        e.target.value = '';
-        setVideoPreviewUrl(null);
-        onChange(null);
-        return;
-      }
-
-      const url = URL.createObjectURL(file);
-      setVideoPreviewUrl(url);
-      onChange(file);
-    }
-
-    // Accepted MIME types
-    const accepted = options.accepted_formats
-      ? options.accepted_formats   // e.g. "video/mp4,video/webm"
-      : 'video/mp4,video/webm,video/ogg,video/quicktime,video/x-msvideo';
-
-    return (
-      <div className="form-group">
-        {labelEl}
-
-        {/* Drop-zone style wrapper */}
-        <label
-          htmlFor={id}
-          style={{
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            gap: '0.5rem',
-            border: '1px dashed var(--color-border-2)',
-            borderRadius: 'var(--radius)',
-            padding: '1.5rem 1rem',
-            cursor: 'pointer',
-            transition: 'border-color var(--transition)',
-            background: 'var(--color-surface-2)',
-          }}
-          onDragOver={(e) => { e.preventDefault(); e.currentTarget.style.borderColor = 'var(--color-primary)'; }}
-          onDragLeave={(e) => { e.currentTarget.style.borderColor = ''; }}
-          onDrop={(e) => {
-            e.preventDefault();
-            e.currentTarget.style.borderColor = '';
-            const file = e.dataTransfer.files?.[0];
-            if (file) {
-              const fakeEvent = { target: { files: [file], value: '' } };
-              handleVideoChange(fakeEvent);
-            }
-          }}
-        >
-          {/* Upload icon */}
-          <span style={{
-            width: 40, height: 40, borderRadius: '50%',
-            background: 'rgba(26,155,138,0.1)',
-            border: '1px solid rgba(26,155,138,0.2)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            fontFamily: 'var(--font-display)', fontSize: '1.1rem',
-            color: 'var(--color-primary)',
-          }}>&#9654;</span>
-
-          <span style={{ fontSize: '0.86rem', color: 'var(--color-text-muted)' }}>
-            {videoPreviewUrl ? 'Replace video' : 'Click or drag & drop a video file'}
-          </span>
-
-          {options.max_size_mb && (
-            <span className="text-xs text-muted">Max {options.max_size_mb} MB</span>
-          )}
-
-          {/* Accepted format pills */}
-          {options.accepted_formats && (
-            <div style={{ display: 'flex', gap: '0.3rem', flexWrap: 'wrap', justifyContent: 'center' }}>
-              {options.accepted_formats.split(',').map((f) => (
-                <span key={f} style={{
-                  fontSize: '0.7rem', padding: '0.1rem 0.5rem',
-                  border: '1px solid var(--color-border-2)',
-                  borderRadius: 999, color: 'var(--color-text-dim)',
-                }}>
-                  {f.replace('video/', '')}
-                </span>
-              ))}
-            </div>
-          )}
-
-          <input
-            id={id}
-            type="file"
-            accept={accepted}
-            onChange={handleVideoChange}
-            style={{ display: 'none' }}
-          />
-        </label>
-
-        {/* Preview player */}
-        {videoPreviewUrl && (
-          <video
-            src={videoPreviewUrl}
-            controls
-            style={{
-              marginTop: '0.75rem',
-              width: '100%',
-              maxHeight: 240,
-              borderRadius: 'var(--radius)',
-              border: '1px solid var(--color-border)',
-              background: '#000',
-            }}
-          />
-        )}
-
-        {helpText && <span className="form-help">{helpText}</span>}
-        {errorEl}
-      </div>
-    );
-  }
-
-  // ── Signature Pad (stub — shows textarea) ────────────────────────────────
-  if (fieldType === 'signature') {
-    return (
-      <div className="form-group">
-        {labelEl}
-        <div style={{ border: '1px dashed var(--color-border)', borderRadius: 'var(--radius)', padding: '1.5rem', textAlign: 'center', color: 'var(--color-text-muted)', fontSize: '0.9rem' }}>
-          Signature pad (available in full version)
-        </div>
-        {helpEl}{errorEl}
-      </div>
-    );
-  }
-
-  // ── Rich Text (stub) ──────────────────────────────────────────────────────
-  if (fieldType === 'richtext') {
-    return (
-      <div className="form-group">
-        {labelEl}
-        <textarea id={id} value={value || ''} onChange={(e) => onChange(e.target.value)} rows={5} placeholder="Enter rich text (WYSIWYG editor loads in full version)" />
-        {helpEl}{errorEl}
-      </div>
-    );
+  // ── File / Image / Video upload ───────────────────────────────────────────
+  if (fieldType === 'file' || fieldType === 'image' || fieldType === 'video') {
+    return <UploadField field={field} value={value} onChange={onChange} error={error} />;
   }
 
   // ── Address (composite) ───────────────────────────────────────────────────

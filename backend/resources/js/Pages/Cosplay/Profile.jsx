@@ -136,11 +136,27 @@ export default function Profile({ user, cosplayer, events = [] }) {
                   {f.description && (
                     <p className="text-sm text-muted mb-2">{f.description}</p>
                   )}
-                  <Link href={`/events/${f.eventId}/forms/${f.id}`}>
-                    <button className="btn btn-primary btn-sm w-full" disabled={!cosplayer}>
-                      Fill Form
-                    </button>
-                  </Link>
+                  {f.submission ? (
+                    <div>
+                      <span className={`badge badge-${f.submission.status}`}>
+                        {f.submission.status === 'pending' ? 'Submitted — under review' : f.submission.status}
+                      </span>
+                      <p className="text-sm text-muted mt-1">Your entry number: <strong>#{f.submission.entry_number}</strong></p>
+                    </div>
+                  ) : f.closed_reason ? (
+                    <p className="text-sm text-muted">{f.closed_reason}</p>
+                  ) : (
+                    <>
+                      {f.closes_at && (
+                        <p className="text-xs text-muted mb-1">Closes {new Date(f.closes_at).toLocaleString()}</p>
+                      )}
+                      <Link href={`/events/${f.eventId}/forms/${f.id}`}>
+                        <button className="btn btn-primary btn-sm w-full" disabled={!cosplayer}>
+                          Fill Form
+                        </button>
+                      </Link>
+                    </>
+                  )}
                 </div>
               ))}
             </div>

@@ -6,7 +6,18 @@ use Illuminate\Database\Eloquent\Model;
 
 class FormSubmission extends Model
 {
-    protected $fillable = ['form_id', 'cosplayer_id', 'source', 'import_batch_id', 'submitted_at'];
+    public const STATUSES = ['pending', 'approved', 'rejected'];
+
+    protected $fillable = [
+        'form_id',
+        'cosplayer_id',
+        'entry_number',
+        'status',
+        'admin_notes',
+        'source',
+        'import_batch_id',
+        'submitted_at',
+    ];
 
     protected function casts(): array
     {

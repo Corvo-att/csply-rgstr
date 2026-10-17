@@ -43,4 +43,10 @@ return [
         'app_id'         => env('GOOGLE_APP_ID'),
     ],
 
+    // EGYCON Voting system integration (read-only API, see routes/api.php).
+    // Leave VOTING_API_TOKEN empty to switch the API off.
+    'voting' => [
+        'token' => env('VOTING_API_TOKEN'),
+    ],
+
 ];

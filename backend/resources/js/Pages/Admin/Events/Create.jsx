@@ -4,27 +4,34 @@ import AdminLayout from '../../../Layouts/AdminLayout.jsx';
 
 const statusOptions = ['draft', 'published', 'closed'];
 
-export default function EventCreate() {
-  const { data, setData, post, processing, errors } = useForm({
-    name:        '',
-    description: '',
-    starts_at:   '',
-    ends_at:     '',
-    location:    '',
-    status:      'draft',
+export default function EventCreate({ event = null }) {
+  const editing = Boolean(event);
+  const { data, setData, post, put, processing, errors } = useForm({
+    name:        event?.name        ?? '',
+    description: event?.description ?? '',
+    starts_at:   event?.starts_at   ?? '',
+    ends_at:     event?.ends_at     ?? '',
+    location:    event?.location    ?? '',
+    status:      event?.status      ?? 'draft',
   });
 
   function handleSubmit(e) {
     e.preventDefault();
-    post('/admin/events');
+    if (editing) {
+      put(`/admin/events/${event.id}`, { onSuccess: () => {} });
+    } else {
+      post('/admin/events');
+    }
   }
 
   return (
     <AdminLayout>
       <div className="page-content" style={{ maxWidth: 640 }}>
         <div className="page-header">
-          <h1 className="page-title">New Event</h1>
-          <p className="page-subtitle">Create a convention event. You can add forms after saving.</p>
+          <h1 className="page-title">{editing ? 'Edit Event' : 'New Event'}</h1>
+          <p className="page-subtitle">
+            {editing ? 'Change the event details.' : 'Create a convention event. You can add forms after saving.'}
+          </p>
         </div>
 
         <div className="card">
@@ -109,7 +116,7 @@ export default function EventCreate() {
                 <button type="button" className="btn btn-ghost">Cancel</button>
               </Link>
               <button type="submit" className="btn btn-primary" disabled={processing}>
-                {processing ? 'Creating…' : 'Create Event'}
+                {processing ? 'Saving…' : editing ? 'Save Changes' : 'Create Event'}
               </button>
             </div>
           </form>

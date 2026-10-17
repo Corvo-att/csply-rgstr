@@ -3,8 +3,10 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Http\Requests\EventRequest;
 use App\Models\Event;
-use Illuminate\Http\Request;
+use App\Models\Form;
+use App\Services\SubmissionFiles;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Str;
 use Inertia\Inertia;
@@ -13,8 +15,9 @@ class EventController extends Controller
 {
     public function index()
     {
-        $events = Event::withCount('forms')->latest()->get();
-        return Inertia::render('Admin/Events/Index', ['events' => $events]);
+        return Inertia::render('Admin/Events/Index', [
+            'events' => Event::withCount('forms')->latest()->get(),
+        ]);
     }
 
     public function create()
@@ -22,62 +25,77 @@ class EventController extends Controller
         return Inertia::render('Admin/Events/Create');
     }
 
-    public function store(Request $request)
+    public function store(EventRequest $request)
     {
-        $data = $request->validate([
-            'name'        => ['required', 'string', 'max:255'],
-            'description' => ['nullable', 'string'],
-            'starts_at'   => ['nullable', 'date'],
-            'ends_at'     => ['nullable', 'date', 'after_or_equal:starts_at'],
-            'location'    => ['nullable', 'string', 'max:255'],
-            'status'      => ['required', 'in:draft,published,closed'],
-        ]);
+        $data = $request->validated();
 
         $data['admin_id'] = Auth::guard('admin')->id();
-        $data['slug']     = Str::slug($data['name']);
+        $data['slug'] = $this->uniqueSlug($data['name']);
 
-        $event = Event::create($data);
+        Event::create($data);
 
-        return redirect()->route('admin.events.index');
+        return redirect()->route('admin.events.index')->with('success', 'Event created.');
     }
 
     public function show(Event $event)
     {
-        $event->load('forms');
+        // withCount = 1 query for all counts (was 2 extra queries per form)
+        $forms = $event->forms()->withCount(['fields', 'submissions'])->get();
+
         return Inertia::render('Admin/Events/Forms', [
             'event' => $event,
-            'forms' => $event->forms->map(fn($f) => [
+            'forms' => $forms->map(fn (Form $f) => [
                 ...$f->toArray(),
-                'field_count'      => $f->fields()->count(),
-                'submission_count' => $f->submissions()->count(),
+                'field_count' => $f->fields_count,
+                'submission_count' => $f->submissions_count,
+                // datetime-local inputs want "YYYY-MM-DDTHH:MM" in the app timezone
+                'opens_at_input' => $f->opens_at?->format('Y-m-d\TH:i'),
+                'closes_at_input' => $f->closes_at?->format('Y-m-d\TH:i'),
             ]),
         ]);
     }
 
-    public function edit(Event $event) { /* TODO */ }
-
-    /**
-     * Toggle event status between draft ↔ published.
-     * A closed event is not toggled.
-     */
-    public function update(Request $request, Event $event)
+    public function edit(Event $event)
     {
-        $data = $request->validate([
-            'status' => ['required', 'in:draft,published,closed'],
+        return Inertia::render('Admin/Events/Create', [
+            'event' => [
+                ...$event->only('id', 'name', 'description', 'location', 'status'),
+                'starts_at' => $event->starts_at?->format('Y-m-d\TH:i'),
+                'ends_at' => $event->ends_at?->format('Y-m-d\TH:i'),
+            ],
         ]);
-
-        $event->update(['status' => $data['status']]);
-
-        return redirect()->back()->with('success', 'Event status updated.');
     }
 
-    /**
-     * Permanently delete the event and all related forms.
-     */
-    public function destroy(Event $event)
+    /** Edit event details, or just flip its status (publish / unpublish / close). */
+    public function update(EventRequest $request, Event $event)
     {
+        $event->update($request->validated());
+
+        // Full edit (from the edit page) goes back to the list; the status buttons stay where they are.
+        return $request->has('name')
+            ? redirect()->route('admin.events.index')->with('success', 'Event updated.')
+            : redirect()->back()->with('success', 'Event updated.');
+    }
+
+    /** Permanently delete the event, its forms, submissions and uploaded files. */
+    public function destroy(Event $event, SubmissionFiles $files)
+    {
+        $files->purgeForForms($event->forms()->pluck('id')->all());
         $event->delete();
 
         return redirect()->route('admin.events.index')->with('success', 'Event deleted.');
+    }
+
+    private function uniqueSlug(string $name): string
+    {
+        $base = Str::slug($name) ?: 'event';
+        $slug = $base;
+        $i = 2;
+
+        while (Event::where('slug', $slug)->exists()) {
+            $slug = $base.'-'.$i++;
+        }
+
+        return $slug;
     }
 }

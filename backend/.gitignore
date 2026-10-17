@@ -10,3 +10,5 @@
 /public/hot
 /public/build
 /node_modules
+/public/uploads
+/storage/app/public/uploads

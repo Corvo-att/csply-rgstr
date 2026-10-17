@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Link } from '@inertiajs/react';
+import { Link, router, usePage } from '@inertiajs/react';
 import AdminLayout from '../../../Layouts/AdminLayout.jsx';
 
 /* ── Helpers ─────────────────────────────────────────────────────────────── */
@@ -7,7 +7,7 @@ function isUrl(val) {
   try { return Boolean(new URL(String(val))); } catch { return false; }
 }
 function isImage(url) {
-  return /\.(png|jpe?g|gif|webp|svg|bmp|avif)(\?.*)?$/i.test(url);
+  return /\.(png|jpe?g|gif|webp|bmp|avif)(\?.*)?$/i.test(url);
 }
 function isVideo(url) {
   return /\.(mp4|webm|ogg|mov|avi|mkv|m4v)(\?.*)?$/i.test(url);
@@ -54,7 +54,7 @@ function Lightbox({ src, onClose }) {
 }
 
 /* ── Value renderer ──────────────────────────────────────────────────────── */
-function ValueCell({ field, value, onLightbox }) {
+function ValueCell({ field, value, processing, onLightbox }) {
   const ft = field.field_type;
 
   if (LAYOUT_ONLY.includes(ft)) return null;
@@ -106,9 +106,25 @@ function ValueCell({ field, value, onLightbox }) {
             display: 'block', marginBottom: '0.4rem',
           }}
         />
-        <a href={value} target="_blank" rel="noreferrer" className="text-sm" style={{ color: 'var(--color-primary)' }}>
-          Download ↗
-        </a>
+        <div className="flex gap-1 items-center" style={{ flexWrap: 'wrap' }}>
+          <a href={value} target="_blank" rel="noreferrer" className="text-sm" style={{ color: 'var(--color-primary)' }}>
+            Download ↗
+          </a>
+          {processing && (
+            <span className={`badge ${processing.status === 'ready' ? 'badge-approved' : processing.status === 'failed' ? 'badge-rejected' : 'badge-pending'}`}>
+              {processing.status === 'ready' ? 'show-ready' : processing.status}
+            </span>
+          )}
+          {processing?.meta?.duration && (
+            <span className="text-xs text-muted">
+              {Math.round(processing.meta.duration)}s{processing.meta.height ? ` · ${processing.meta.height}p` : ''}
+              {processing.meta.trimmed ? ' · trimmed' : ''}
+            </span>
+          )}
+          {processing?.status === 'failed' && processing.meta?.error && (
+            <span className="text-xs text-muted">Original kept. {processing.meta.error}</span>
+          )}
+        </div>
       </div>
     );
   }
@@ -149,9 +165,26 @@ function ValueCell({ field, value, onLightbox }) {
 
 /* ── Page ────────────────────────────────────────────────────────────────── */
 export default function SubmissionDetail({ form, fields = [], submission }) {
-  const [lightboxSrc, setLightboxSrc] = useState(null);
+  const { auth, flash } = usePage().props;
+  const canManage = auth?.adminUser?.can_manage;
 
-  const { cosplayer, values = {}, submitted_at, id } = submission;
+  const [lightboxSrc, setLightboxSrc] = useState(null);
+  const [notes, setNotes] = useState(submission.admin_notes || '');
+
+  const { cosplayer, values = {}, processing = {}, submitted_at, id } = submission;
+
+  function review(status) {
+    router.patch(`/admin/forms/${form.id}/submissions/${id}`, { status, admin_notes: notes }, { preserveScroll: true });
+  }
+
+  function saveNotes() {
+    router.patch(`/admin/forms/${form.id}/submissions/${id}`, { admin_notes: notes }, { preserveScroll: true });
+  }
+
+  function remove() {
+    if (!window.confirm(`Delete entry #${submission.entry_number}? Its uploaded files are removed too, and ${cosplayer.name} will be able to submit again.`)) return;
+    router.delete(`/admin/forms/${form.id}/submissions/${id}`);
+  }
   const displayFields = fields.filter((f) => !LAYOUT_ONLY.includes(f.field_type));
 
   return (
@@ -182,6 +215,34 @@ export default function SubmissionDetail({ form, fields = [], submission }) {
           <Link href={`/admin/forms/${form.id}/submissions`}>
             <button className="btn btn-ghost btn-sm">← Back to List</button>
           </Link>
+        </div>
+
+        {flash?.success && <div className="alert alert-success mb-3">{flash.success}</div>}
+
+        {/* ── Review ─────────────────────────────────────────────────── */}
+        <div className="card mb-3" style={{ padding: '1.25rem 1.5rem' }}>
+          <div className="card-header" style={{ marginBottom: '0.75rem' }}>
+            <span className="card-title">Entry #{submission.entry_number}</span>
+            <span className={`badge badge-${submission.status}`}>{submission.status}</span>
+          </div>
+
+          {canManage ? (
+            <>
+              <div className="form-group">
+                <label htmlFor="admin-notes">Internal notes (never shown to the cosplayer)</label>
+                <textarea id="admin-notes" rows={3} value={notes} onChange={(e) => setNotes(e.target.value)} maxLength={5000} />
+              </div>
+              <div className="flex gap-1" style={{ flexWrap: 'wrap' }}>
+                <button className="btn btn-primary btn-sm" onClick={() => review('approved')} disabled={submission.status === 'approved'}>Approve</button>
+                <button className="btn btn-ghost btn-sm" onClick={() => review('pending')} disabled={submission.status === 'pending'}>Mark pending</button>
+                <button className="btn btn-ghost btn-sm" onClick={() => review('rejected')} disabled={submission.status === 'rejected'}>Reject</button>
+                <button className="btn btn-ghost btn-sm" onClick={saveNotes}>Save notes</button>
+                <button className="btn btn-danger btn-sm" style={{ marginLeft: 'auto' }} onClick={remove}>Delete entry</button>
+              </div>
+            </>
+          ) : (
+            submission.admin_notes && <p className="text-sm" style={{ whiteSpace: 'pre-wrap' }}>{submission.admin_notes}</p>
+          )}
         </div>
 
         {/* ── Cosplayer Profile Card ──────────────────────────────────── */}
@@ -272,6 +333,7 @@ export default function SubmissionDetail({ form, fields = [], submission }) {
                       <ValueCell
                         field={field}
                         value={val}
+                        processing={processing[field.id]}
                         onLightbox={setLightboxSrc}
                       />
                     </div>
