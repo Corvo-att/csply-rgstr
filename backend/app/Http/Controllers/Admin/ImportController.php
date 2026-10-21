@@ -63,6 +63,48 @@ class ImportController extends Controller
     }
 
     /**
+     * Connect a Google Sheet to begin an import batch.
+     */
+    public function storeGoogleSheet(Request $request, Form $form)
+    {
+        $request->validate([
+            'spreadsheet_id' => ['required', 'string'],
+            'sheet_name'     => ['nullable', 'string'],
+            'header_row'     => ['nullable', 'integer', 'min:1'],
+        ]);
+
+        $admin = Auth::guard('admin')->user();
+        $connection = \App\Models\GoogleConnection::where('admin_id', $admin->id)
+            ->whereNull('revoked_at')
+            ->first();
+
+        if (! $connection || ! $connection->isConnected()) {
+            return back()->withErrors(['google' => 'Please connect your Google Account first.']);
+        }
+
+        $batch = ImportBatch::create([
+            'admin_id'             => $admin->id,
+            'form_id'              => $form->id,
+            'event_id'             => $form->event_id,
+            'source_type'          => 'google_sheet',
+            'spreadsheet_id'       => $request->spreadsheet_id,
+            'sheet_name'           => $request->sheet_name ?: null,
+            'header_row'           => (int) ($request->header_row ?: 1),
+            'google_connection_id' => $connection->id,
+            'status'               => 'uploaded',
+            'options'              => [
+                'duplicate_strategy' => 'skip',
+            ],
+        ]);
+
+        // Parse Google Sheet rows
+        (new ParseImportFile($batch->id))->handle();
+
+        return redirect()->route('admin.imports.show', $batch->id)
+            ->with('success', 'Google Sheet connected. Please confirm column mappings.');
+    }
+
+    /**
      * Show import wizard (mapping & dry-run validation preview).
      */
     public function show(Request $request, ImportBatch $batch, ImportBatchProcessor $processor)

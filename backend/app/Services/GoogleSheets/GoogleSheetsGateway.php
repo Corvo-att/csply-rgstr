@@ -6,6 +6,8 @@ use App\Models\GoogleConnection;
 use App\Models\SheetColumnMapping;
 use Google\Service\Sheets as SheetsService;
 use Google\Service\Sheets\AddSheetRequest;
+use Google\Service\Sheets\BatchUpdateValuesRequest;
+use Google\Service\Sheets\ClearValuesRequest;
 use Google\Service\Sheets\BatchUpdateSpreadsheetRequest;
 use Google\Service\Sheets\CellData;
 use Google\Service\Sheets\CellFormat;
@@ -292,5 +294,86 @@ class GoogleSheetsGateway implements SheetsGateway
         $service->spreadsheets_values->update($spreadsheetId, $range, $valueRange, [
             'valueInputOption' => 'USER_ENTERED',
         ]);
+    }
+
+    private function quoteTab(string $tabTitle): string
+    {
+        return "'" . str_replace("'", "''", $tabTitle) . "'";
+    }
+
+    public function readColumn(GoogleConnection $connection, string $spreadsheetId, string $tabTitle, string $columnLetter, int $startRow): array
+    {
+        $service = $this->getSheetsService($connection);
+        $range = $this->quoteTab($tabTitle) . "!{$columnLetter}{$startRow}:{$columnLetter}";
+
+        $values = $service->spreadsheets_values->get($spreadsheetId, $range, [
+            'valueRenderOption' => 'UNFORMATTED_VALUE',
+        ])->getValues() ?? [];
+
+        // Google trims trailing blanks and returns [] for blank cells in the middle.
+        return array_map(fn ($row) => isset($row[0]) ? (string) (is_float($row[0]) && floor($row[0]) == $row[0] ? (int) $row[0] : $row[0]) : '', $values);
+    }
+
+    public function readRows(GoogleConnection $connection, string $spreadsheetId, string $tabTitle, int $startRow): array
+    {
+        $service = $this->getSheetsService($connection);
+        $range = $this->quoteTab($tabTitle) . "!A{$startRow}:ZZ";
+
+        return $service->spreadsheets_values->get($spreadsheetId, $range, [
+            'valueRenderOption' => 'UNFORMATTED_VALUE',
+        ])->getValues() ?? [];
+    }
+
+    public function batchUpdateRows(GoogleConnection $connection, string $spreadsheetId, string $tabTitle, array $rowsByNumber, array $columnIndexes): void
+    {
+        if (empty($rowsByNumber) || empty($columnIndexes)) {
+            return;
+        }
+
+        // Group the writable columns into contiguous runs (A:C, E:E, ...) so cells in the gaps are never overwritten.
+        $columnIndexes = array_values(array_unique($columnIndexes));
+        sort($columnIndexes);
+        $runs = [];
+        foreach ($columnIndexes as $idx) {
+            $last = count($runs) - 1;
+            if ($last >= 0 && $runs[$last][1] === $idx - 1) {
+                $runs[$last][1] = $idx;
+            } else {
+                $runs[] = [$idx, $idx];
+            }
+        }
+
+        $tab = $this->quoteTab($tabTitle);
+        $data = [];
+        foreach ($rowsByNumber as $rowNumber => $cells) {
+            foreach ($runs as [$from, $to]) {
+                $values = [];
+                for ($c = $from; $c <= $to; $c++) {
+                    $values[] = CellSanitizer::sanitize($cells[$c] ?? '', allowFormulas: true);
+                }
+                $data[] = new ValueRange([
+                    'range'  => "{$tab}!" . SheetColumnMapping::indexToLetter($from) . $rowNumber . ':' . SheetColumnMapping::indexToLetter($to) . $rowNumber,
+                    'values' => [$values],
+                ]);
+            }
+        }
+
+        $service = $this->getSheetsService($connection);
+        foreach (array_chunk($data, 500) as $chunk) {
+            $service->spreadsheets_values->batchUpdate($spreadsheetId, new BatchUpdateValuesRequest([
+                'valueInputOption' => 'USER_ENTERED',
+                'data'             => $chunk,
+            ]));
+        }
+    }
+
+    public function clearDataRows(GoogleConnection $connection, string $spreadsheetId, string $tabTitle, int $fromRow): void
+    {
+        $service = $this->getSheetsService($connection);
+        $service->spreadsheets_values->clear(
+            $spreadsheetId,
+            $this->quoteTab($tabTitle) . "!A{$fromRow}:ZZ",
+            new ClearValuesRequest()
+        );
     }
 }

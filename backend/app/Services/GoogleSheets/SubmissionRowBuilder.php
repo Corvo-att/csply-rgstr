@@ -45,6 +45,9 @@ class SubmissionRowBuilder
             if ($mapping->source_type === 'system') {
                 $rawVal = match ($mapping->source_key) {
                     'submission_id'  => (string) $submission->id,
+                    'uuid'           => (string) ($submission->uuid ?? ''),
+                    'entry_number'   => (string) ($submission->entry_number ?? ''),
+                    'status'         => ucfirst($submission->status ?? 'pending'),
                     'submitted_at'   => ($submission->submitted_at ?? $submission->created_at)?->format('Y-m-d H:i:s') ?? '',
                     'cosplayer_name' => $user?->name ?? '—',
                     'email'          => $user?->email ?? '—',
@@ -54,6 +57,12 @@ class SubmissionRowBuilder
                 };
             } else {
                 $rawVal = $valuesByKey[$mapping->source_key] ?? '';
+                if (is_string($rawVal) && (str_starts_with($rawVal, '[') || str_starts_with($rawVal, '{'))) {
+                    $decoded = json_decode($rawVal, true);
+                    if (is_array($decoded)) {
+                        $rawVal = implode(', ', array_filter($decoded, fn ($v) => ! is_array($v) && $v !== null && $v !== ''));
+                    }
+                }
             }
 
             $transformed = $this->applyTransform($rawVal, $mapping->transform);

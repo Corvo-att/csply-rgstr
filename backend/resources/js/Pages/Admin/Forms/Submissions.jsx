@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Link, router, usePage } from '@inertiajs/react';
 import AdminLayout from '../../../Layouts/AdminLayout.jsx';
 import Pagination from '../../../Components/Pagination.jsx';
+import SheetSyncModal from '../../../Components/Sheets/SheetSyncModal.jsx';
 
 const MEDIA_TYPES = ['file', 'image', 'video'];
 const LAYOUT_ONLY = ['section', 'instructions'];
@@ -55,6 +56,11 @@ export default function Submissions({ form, fields = [], submissions, filters = 
   const [showImportModal, setShowImportModal] = useState(false);
   const [importFile, setImportFile] = useState(null);
   const [uploading, setUploading] = useState(false);
+  const [sheetsModalOpen, setSheetsModalOpen] = useState(false);
+  const [importSource, setImportSource] = useState('file'); // 'file' | 'google_sheet'
+  const [gsSpreadsheetInput, setGsSpreadsheetInput] = useState('');
+  const [gsSheetName, setGsSheetName] = useState('');
+  const [gsError, setGsError] = useState('');
 
   const handleUpload = (e) => {
     e.preventDefault();
@@ -68,6 +74,35 @@ export default function Submissions({ form, fields = [], submissions, filters = 
       onFinish: () => setUploading(false),
     });
   };
+
+  const handleGoogleSheetImport = (e) => {
+    e.preventDefault();
+    setGsError('');
+    const raw = gsSpreadsheetInput.trim();
+    if (!raw) {
+      setGsError('Spreadsheet ID or URL is required');
+      return;
+    }
+    const match = raw.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
+    const spreadsheetId = match ? match[1] : raw;
+
+    setUploading(true);
+    router.post(
+      `/admin/forms/${form.id}/import/google-sheet`,
+      {
+        spreadsheet_id: spreadsheetId,
+        sheet_name: gsSheetName.trim() || null,
+      },
+      {
+        onError: (errs) => {
+          setUploading(false);
+          setGsError(errs.google || errs.spreadsheet_id || errs.sheet_name || 'Failed to connect to Google Sheet.');
+        },
+        onFinish: () => setUploading(false),
+      }
+    );
+  };
+
   return (
     <AdminLayout>
       <div className="page-content">
@@ -95,10 +130,20 @@ export default function Submissions({ form, fields = [], submissions, filters = 
             </Link>
             {canManage && (
               <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                onClick={() => setSheetsModalOpen(true)}
+                title="Google Sheets Realtime Sync, Backfill & Pull"
+              >
+                📊 Google Sheets
+              </button>
+            )}
+            {canManage && (
+              <button
                 className="btn btn-secondary btn-sm"
                 onClick={() => setShowImportModal(true)}
               >
-                📥 Import Excel
+                📥 Import
               </button>
             )}
             <a href={`/admin/forms/${form.id}/submissions/export${exportQuery ? `?${exportQuery}` : ''}`}>
@@ -122,10 +167,10 @@ export default function Submissions({ form, fields = [], submissions, filters = 
               backdropFilter: 'blur(3px)',
             }}
           >
-            <div className="card" style={{ width: '100%', maxWidth: 480, padding: '1.75rem' }}>
+            <div className="card" style={{ width: '100%', maxWidth: 500, padding: '1.75rem' }}>
               <div className="flex justify-between items-center mb-3">
                 <h3 style={{ margin: 0, fontSize: '1.2rem', fontWeight: 600 }}>
-                  Import Submissions from Excel
+                  Import Submissions
                 </h3>
                 <button
                   type="button"
@@ -136,51 +181,126 @@ export default function Submissions({ form, fields = [], submissions, filters = 
                 </button>
               </div>
 
-              <p className="text-muted text-sm mb-4">
-                Upload an <code>.xlsx</code>, <code>.xls</code>, or <code>.csv</code> file. You will be able to review, map columns, and fix validation issues before importing.
-              </p>
-
-              <div className="mb-4 p-3" style={{ background: 'var(--color-bg)', borderRadius: 8, border: '1px solid var(--color-border)' }}>
-                <span className="text-xs text-muted block mb-1">Need a template?</span>
-                <a
-                  href={`/admin/forms/${form.id}/import/template`}
-                  className="text-sm font-semibold"
-                  style={{ color: 'var(--color-primary)' }}
+              {/* Tabs */}
+              <div className="flex gap-2 mb-3" style={{ borderBottom: '1px solid var(--color-border)', paddingBottom: '0.5rem' }}>
+                <button
+                  type="button"
+                  className={`btn btn-sm ${importSource === 'file' ? 'btn-primary' : 'btn-ghost'}`}
+                  onClick={() => { setImportSource('file'); setGsError(''); }}
                 >
-                  📄 Download pre-formatted Excel template
-                </a>
+                  📁 Excel / CSV File
+                </button>
+                <button
+                  type="button"
+                  className={`btn btn-sm ${importSource === 'google_sheet' ? 'btn-primary' : 'btn-ghost'}`}
+                  onClick={() => { setImportSource('google_sheet'); setGsError(''); }}
+                >
+                  📊 Google Sheet
+                </button>
               </div>
 
-              <form onSubmit={handleUpload}>
-                <div className="form-group mb-4">
-                  <label className="form-label text-sm font-medium">Select Spreadsheet File</label>
-                  <input
-                    type="file"
-                    accept=".xlsx,.xls,.csv"
-                    className="form-control"
-                    onChange={(e) => setImportFile(e.target.files[0] || null)}
-                    required
-                  />
-                </div>
+              {importSource === 'file' ? (
+                <>
+                  <p className="text-muted text-sm mb-3">
+                    Upload an <code>.xlsx</code>, <code>.xls</code>, or <code>.csv</code> file. You will be able to review, map columns, and fix validation issues before importing.
+                  </p>
 
-                <div className="flex justify-end gap-2">
-                  <button
-                    type="button"
-                    className="btn btn-secondary"
-                    onClick={() => setShowImportModal(false)}
-                    disabled={uploading}
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="submit"
-                    className="btn btn-primary"
-                    disabled={!importFile || uploading}
-                  >
-                    {uploading ? 'Uploading & Parsing...' : 'Next: Map Columns →'}
-                  </button>
-                </div>
-              </form>
+                  <div className="mb-4 p-3" style={{ background: 'var(--color-bg)', borderRadius: 8, border: '1px solid var(--color-border)' }}>
+                    <span className="text-xs text-muted block mb-1">Need a template?</span>
+                    <a
+                      href={`/admin/forms/${form.id}/import/template`}
+                      className="text-sm font-semibold"
+                      style={{ color: 'var(--color-primary)' }}
+                    >
+                      📄 Download pre-formatted Excel template
+                    </a>
+                  </div>
+
+                  <form onSubmit={handleUpload}>
+                    <div className="form-group mb-4">
+                      <label className="form-label text-sm font-medium">Select Spreadsheet File</label>
+                      <input
+                        type="file"
+                        accept=".xlsx,.xls,.csv"
+                        className="form-control"
+                        onChange={(e) => setImportFile(e.target.files[0] || null)}
+                        required
+                      />
+                    </div>
+
+                    <div className="flex justify-end gap-2">
+                      <button
+                        type="button"
+                        className="btn btn-secondary"
+                        onClick={() => setShowImportModal(false)}
+                        disabled={uploading}
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="submit"
+                        className="btn btn-primary"
+                        disabled={!importFile || uploading}
+                      >
+                        {uploading ? 'Uploading & Parsing...' : 'Next: Map Columns →'}
+                      </button>
+                    </div>
+                  </form>
+                </>
+              ) : (
+                <>
+                  <p className="text-muted text-sm mb-3">
+                    Connect directly to a live Google Sheet. We'll read the rows into an import batch so you can map columns and review entries before committing to the database.
+                  </p>
+
+                  {gsError && <div className="alert alert-danger mb-3 text-sm">{gsError}</div>}
+
+                  <form onSubmit={handleGoogleSheetImport}>
+                    <div className="form-group mb-3">
+                      <label className="form-label text-sm font-medium">Google Spreadsheet URL or ID <span className="required-mark">*</span></label>
+                      <input
+                        type="text"
+                        className="form-control"
+                        placeholder="https://docs.google.com/spreadsheets/d/... or ID"
+                        value={gsSpreadsheetInput}
+                        onChange={(e) => setGsSpreadsheetInput(e.target.value)}
+                        required
+                      />
+                      <span className="text-xs text-muted block mt-1">Paste the full Google Sheets URL or spreadsheet ID.</span>
+                    </div>
+
+                    <div className="form-group mb-4">
+                      <label className="form-label text-sm font-medium">Sheet Tab Name (optional)</label>
+                      <input
+                        type="text"
+                        className="form-control"
+                        placeholder="e.g. Sheet1, Form Responses"
+                        value={gsSheetName}
+                        onChange={(e) => setGsSheetName(e.target.value)}
+                      />
+                      <span className="text-xs text-muted block mt-1">Leave empty to use the first tab.</span>
+                    </div>
+
+                    <div className="flex justify-end gap-2">
+                      <button
+                        type="button"
+                        className="btn btn-secondary"
+                        onClick={() => setShowImportModal(false)}
+                        disabled={uploading}
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="submit"
+                        className="btn btn-primary"
+                        disabled={!gsSpreadsheetInput.trim() || uploading}
+                      >
+                        {uploading ? 'Connecting & Reading Sheet...' : 'Next: Map Columns →'}
+                      </button>
+                    </div>
+                  </form>
+                </>
+              )}
             </div>
           </div>
         )}
@@ -254,6 +374,13 @@ export default function Submissions({ form, fields = [], submissions, filters = 
             </p>
           </>
         )}
+
+        <SheetSyncModal
+          isOpen={sheetsModalOpen}
+          onClose={() => setSheetsModalOpen(false)}
+          form={form}
+          event={form.event || null}
+        />
       </div>
     </AdminLayout>
   );

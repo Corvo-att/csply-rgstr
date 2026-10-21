@@ -6,7 +6,9 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\UpdateSubmissionRequest;
 use App\Models\Form;
 use App\Models\FormSubmission;
+use App\Services\GoogleSheets\SheetSyncDispatcher;
 use App\Services\SubmissionFiles;
+use App\Services\SubmissionRevisionRecorder;
 use App\Support\CsvDownload;
 use App\Support\SubmissionPresenter;
 use Illuminate\Http\Request;
@@ -79,20 +81,38 @@ class SubmissionController extends Controller
     }
 
     /** Approve / reject an entry, or save internal notes. */
-    public function update(UpdateSubmissionRequest $request, Form $form, FormSubmission $submission)
-    {
+    public function update(
+        UpdateSubmissionRequest $request,
+        Form $form,
+        FormSubmission $submission,
+        SheetSyncDispatcher $sync,
+        SubmissionRevisionRecorder $revisions,
+    ) {
         abort_if($submission->form_id !== $form->id, 404);
 
-        $submission->update($request->validated());
+        $admin = auth('admin')->user();
+        $revisions->record($submission, 'admin', 'admin', $admin?->id);
+
+        $submission->fill($request->validated());
+        $submission->last_edited_at = now();
+        $submission->version = $submission->version + 1;
+        $submission->save();
+
+        $sync->changed($submission);
 
         return back()->with('success', 'Entry updated.');
     }
 
     /** Remove an entry (lets the cosplayer submit again) together with its uploaded files. */
-    public function destroy(Form $form, FormSubmission $submission, SubmissionFiles $files)
-    {
+    public function destroy(
+        Form $form,
+        FormSubmission $submission,
+        SubmissionFiles $files,
+        SheetSyncDispatcher $sync,
+    ) {
         abort_if($submission->form_id !== $form->id, 404);
 
+        $sync->tombstone($submission);
         $files->purgeForSubmissions([$submission->id]);
         $submission->delete();
 

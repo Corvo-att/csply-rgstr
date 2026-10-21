@@ -13,11 +13,14 @@ class ColumnAutoMapper
      */
     public const SYSTEM_COLUMNS = [
         'submission_id'   => ['label' => 'Submission ID',   'transform' => 'text'],
+        'status'          => ['label' => 'Status',          'transform' => 'text'],
+        'entry_number'    => ['label' => 'Entry #',         'transform' => 'text'],
         'submitted_at'    => ['label' => 'Submitted At',    'transform' => 'date'],
         'cosplayer_name'  => ['label' => 'Cosplayer Name',  'transform' => 'text'],
         'email'           => ['label' => 'Email',           'transform' => 'text'],
         'character'       => ['label' => 'Character',       'transform' => 'text'],
         'series'          => ['label' => 'Series',          'transform' => 'text'],
+        'uuid'            => ['label' => 'UUID',            'transform' => 'text'],
     ];
 
     /**
@@ -28,7 +31,7 @@ class ColumnAutoMapper
      */
     public function generateDefaultMappings(Form $form, ?array $includedSystemKeys = null): array
     {
-        $includedSystemKeys ??= ['submission_id', 'submitted_at', 'cosplayer_name', 'email', 'character'];
+        $includedSystemKeys ??= ['submission_id', 'status', 'entry_number', 'submitted_at', 'cosplayer_name', 'email', 'character'];
         $mappings = [];
         $colIndex = 0;
 

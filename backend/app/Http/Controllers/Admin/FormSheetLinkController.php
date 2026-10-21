@@ -3,12 +3,18 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Jobs\BackfillFormToSheet;
+use App\Jobs\FlushSheetLink;
 use App\Models\Form;
 use App\Models\FormField;
 use App\Models\FormSheetLink;
+use App\Models\FormSubmission;
 use App\Models\GoogleConnection;
 use App\Models\SheetColumnMapping;
+use App\Models\SheetPullBatch;
+use App\Models\SheetSyncRecord;
 use App\Services\GoogleSheets\ColumnAutoMapper;
+use App\Services\GoogleSheets\SheetPullService;
 use App\Services\GoogleSheets\SheetsGateway;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -37,17 +43,33 @@ class FormSheetLinkController extends Controller
 
         $fields = $form->fields()->orderBy('sort_order')->get(['id', 'label', 'field_key', 'field_type', 'is_required']);
 
+        $stats = null;
+        $lastPull = null;
+        if ($link) {
+            $stats = [
+                'total_submissions' => FormSubmission::where('form_id', $form->id)->count(),
+                'synced'            => SheetSyncRecord::where('form_sheet_link_id', $link->id)->where('status', 'synced')->count(),
+                'pending'           => SheetSyncRecord::where('form_sheet_link_id', $link->id)->where('status', 'pending')->count(),
+                'failed'            => SheetSyncRecord::where('form_sheet_link_id', $link->id)->where('status', 'failed')->count(),
+                'last_synced_at'    => $link->last_synced_at?->toIso8601String(),
+                'last_error'        => $link->last_error,
+            ];
+            $lastPull = SheetPullBatch::where('form_sheet_link_id', $link->id)->latest()->first();
+        }
+
         return response()->json([
-            'connected'      => $connection !== null && $connection->isConnected(),
-            'connection'     => $connection ? [
+            'connected'        => $connection !== null && $connection->isConnected(),
+            'connection'       => $connection ? [
                 'id'         => $connection->id,
                 'email'      => $connection->email,
                 'avatar_url' => $connection->avatar_url,
             ] : null,
-            'link'           => $link,
-            'mappings'       => $link ? $link->mappings : [],
-            'fields'         => $fields,
-            'system_columns' => ColumnAutoMapper::SYSTEM_COLUMNS,
+            'link'             => $link,
+            'sync_stats'       => $stats,
+            'last_pull'        => $lastPull,
+            'mappings'         => $link ? $link->mappings : [],
+            'fields'           => $fields,
+            'system_columns'   => ColumnAutoMapper::SYSTEM_COLUMNS,
             'default_mappings' => $this->autoMapper->generateDefaultMappings($form),
         ]);
     }
@@ -290,14 +312,86 @@ class FormSheetLinkController extends Controller
 
     /**
      * Dispatch a background job to backfill/resync submissions to the linked Google Sheet.
+     * Modes: 'missing' (default), 'verify', 'rebuild'.
      */
     public function resync(Request $request, Form $form)
     {
         $link = $form->sheetLink()->firstOrFail();
-        $forceAll = (bool) $request->input('force_all', false);
+        $mode = $request->input('mode', $request->boolean('force_all') ? 'verify' : 'missing');
 
-        \App\Jobs\BackfillFormToSheet::dispatch($form->id, $forceAll);
+        if (! in_array($mode, BackfillFormToSheet::MODES, true)) {
+            $mode = 'missing';
+        }
 
-        return back()->with('success', 'Submissions synchronization has been queued in the background.');
+        BackfillFormToSheet::dispatch($form->id, $mode);
+
+        $msg = match ($mode) {
+            'rebuild' => 'Rebuilding sheet: data rows cleared and rewrite queued.',
+            'verify'  => 'Sheet verification and repair queued in background.',
+            default   => 'Syncing missing submissions to Google Sheet.',
+        };
+
+        return back()->with('success', $msg);
+    }
+
+    /**
+     * Immediately flush pending sheet sync records for this form.
+     */
+    public function syncNow(Form $form)
+    {
+        $link = $form->sheetLink()->firstOrFail();
+        FlushSheetLink::dispatch($link->id);
+
+        return back()->with('success', 'Sheet flush job dispatched.');
+    }
+
+    /**
+     * Scan the connected Google Sheet for cell edits and return a diff preview.
+     */
+    public function pull(Request $request, Form $form, SheetPullService $pullService)
+    {
+        $link = $form->sheetLink()->with(['connection', 'activeMappings'])->firstOrFail();
+
+        try {
+            $batch = $pullService->scan($link, Auth::guard('admin')->user());
+
+            return response()->json([
+                'success' => true,
+                'batch'   => $batch,
+            ]);
+        } catch (\Throwable $e) {
+            Log::error("Sheet pull scan failed for form {$form->id}: " . $e->getMessage());
+            return response()->json([
+                'success' => false,
+                'error'   => $e->getMessage(),
+            ], 422);
+        }
+    }
+
+    /**
+     * Apply the reviewed edits from a SheetPullBatch back to the database.
+     */
+    public function applyPull(Request $request, Form $form, SheetPullBatch $batch, SheetPullService $pullService)
+    {
+        $link = $form->sheetLink()->firstOrFail();
+        abort_if($batch->form_sheet_link_id !== $link->id, 404);
+
+        $selectedIds = $request->input('selected_submission_ids'); // array of ids, or null for all
+
+        try {
+            $result = $pullService->apply($batch, is_array($selectedIds) ? $selectedIds : null);
+
+            return response()->json([
+                'success' => true,
+                'applied' => $result['applied_count'],
+                'message' => "Successfully updated {$result['applied_count']} submission(s) from Google Sheet edits.",
+            ]);
+        } catch (\Throwable $e) {
+            Log::error("Sheet pull apply failed for batch {$batch->id}: " . $e->getMessage());
+            return response()->json([
+                'success' => false,
+                'error'   => $e->getMessage(),
+            ], 422);
+        }
     }
 }

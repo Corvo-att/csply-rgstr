@@ -15,6 +15,15 @@ export default function SheetSyncModal({ isOpen, onClose, form, event, initialLi
   const [submitting, setSubmitting]             = useState(false);
   const [pickerError, setPickerError]           = useState(null);
 
+  // Sheet Pull & Sync Controls state
+  const [pullScanning, setPullScanning]         = useState(false);
+  const [pullBatch, setPullBatch]               = useState(null);
+  const [pullApplying, setPullApplying]         = useState(false);
+  const [selectedSubmissions, setSelectedSubmissions] = useState(new Set());
+  const [pullMessage, setPullMessage]           = useState('');
+  const [syncingNow, setSyncingNow]             = useState(false);
+  const [showResyncModal, setShowResyncModal]   = useState(false);
+
   // Fetch full integration status when modal opens
   useEffect(() => {
     if (isOpen) {
@@ -148,6 +157,102 @@ export default function SheetSyncModal({ isOpen, onClose, form, event, initialLi
     });
   }
 
+  async function handleSyncNow() {
+    setSyncingNow(true);
+    try {
+      await fetch(`/admin/forms/${form.id}/sheet/sync-now`, {
+        method: 'POST',
+        headers: {
+          'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '',
+          'Accept': 'application/json',
+        },
+      });
+      await loadData();
+    } catch (e) {
+      alert('Error triggering sync: ' + e.message);
+    } finally {
+      setSyncingNow(false);
+    }
+  }
+
+  function handleTriggerResync(mode) {
+    setShowResyncModal(false);
+    router.post(`/admin/forms/${form.id}/sheet/resync`, { mode }, {
+      preserveScroll: true,
+      onSuccess: loadData,
+    });
+  }
+
+  async function handleScanPull() {
+    setPullScanning(true);
+    setPullMessage('');
+    try {
+      const res = await fetch(`/admin/forms/${form.id}/sheet/pull`, {
+        method: 'POST',
+        headers: {
+          'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '',
+          'Accept': 'application/json',
+        },
+      });
+      const resJson = await res.json();
+      if (!res.ok || !resJson.success) {
+        alert(resJson.error || 'Failed to scan Google Sheet for edits.');
+        return;
+      }
+      setPullBatch(resJson.batch);
+      if (resJson.batch.changes?.length) {
+        setSelectedSubmissions(new Set(resJson.batch.changes.map((c) => c.submission_id)));
+      } else {
+        alert('Everything is up to date! No changes detected in Google Sheets.');
+      }
+    } catch (e) {
+      alert('Error scanning sheet: ' + e.message);
+    } finally {
+      setPullScanning(false);
+    }
+  }
+
+  async function handleApplyPull() {
+    if (!pullBatch) return;
+    if (selectedSubmissions.size === 0) {
+      alert('Please select at least one submission to update.');
+      return;
+    }
+    setPullApplying(true);
+    try {
+      const res = await fetch(`/admin/forms/${form.id}/sheet/pull/${pullBatch.id}/apply`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '',
+          'Accept': 'application/json',
+        },
+        body: JSON.stringify({
+          selected_submission_ids: Array.from(selectedSubmissions),
+        }),
+      });
+      const resJson = await res.json();
+      if (!res.ok || !resJson.success) {
+        alert(resJson.error || 'Failed to apply sheet changes.');
+        return;
+      }
+      setPullMessage(resJson.message);
+      setPullBatch(null);
+      await loadData();
+    } catch (e) {
+      alert('Error applying sheet changes: ' + e.message);
+    } finally {
+      setPullApplying(false);
+    }
+  }
+
+  function toggleSubmissionSelection(subId) {
+    const next = new Set(selectedSubmissions);
+    if (next.has(subId)) next.delete(subId);
+    else next.add(subId);
+    setSelectedSubmissions(next);
+  }
+
   if (!isOpen) return null;
 
   const link = data?.link || initialLink;
@@ -231,26 +336,27 @@ export default function SheetSyncModal({ isOpen, onClose, form, event, initialLi
           ) : link ? (
             /* Already Linked View */
             <div>
+              {/* Linked Spreadsheet Card */}
               <div style={{
                 background: 'var(--color-surface-2)',
-                padding: '1rem 1.25rem',
-                borderRadius: 'var(--radius-sm)',
+                padding: '1.25rem',
+                borderRadius: 'var(--radius)',
                 border: '1px solid var(--color-border)',
-                marginBottom: '1.5rem',
+                marginBottom: '1.25rem',
               }}>
-                <div className="flex justify-between items-center mb-2">
+                <div className="flex justify-between items-center mb-3" style={{ flexWrap: 'wrap', gap: '0.75rem' }}>
                   <div>
-                    <span style={{ fontSize: '0.75rem', textTransform: 'uppercase', color: 'var(--color-text-dim)', letterSpacing: '0.05em' }}>
+                    <span style={{ fontSize: '0.75rem', textTransform: 'uppercase', color: 'var(--color-text-dim)', letterSpacing: '0.05em', fontWeight: 600 }}>
                       Linked Spreadsheet
                     </span>
-                    <h4 style={{ fontSize: '1.1rem', fontWeight: 700, color: 'var(--color-text)' }}>
+                    <h4 style={{ fontSize: '1.15rem', fontWeight: 700, color: 'var(--color-text)', margin: '0.15rem 0' }}>
                       {link.spreadsheet_title}
                     </h4>
                     <p className="text-sm text-muted">
                       Tab: <strong>{link.sheet_title}</strong> (GID: {link.sheet_gid})
                     </p>
                   </div>
-                  <div className="flex gap-1 items-center">
+                  <div className="flex gap-1 items-center" style={{ flexWrap: 'wrap' }}>
                     <a
                       href={link.spreadsheet_url}
                       target="_blank"
@@ -268,18 +374,11 @@ export default function SheetSyncModal({ isOpen, onClose, form, event, initialLi
                     </button>
                     <button
                       type="button"
-                      className="btn btn-ghost btn-sm"
-                      onClick={() => {
-                        if (confirm('Sync all existing submissions for this form to the Google Sheet?')) {
-                          router.post(`/admin/forms/${form.id}/sheet/resync`, {}, {
-                            preserveScroll: true,
-                            onSuccess: loadData,
-                          });
-                        }
-                      }}
-                      title="Backfill existing submissions to the sheet"
+                      className="btn btn-secondary btn-sm"
+                      onClick={() => setShowResyncModal(true)}
+                      title="Sync missing rows, verify, or rebuild"
                     >
-                      ↻ Backfill / Resync
+                      ↻ Resync / Rebuild
                     </button>
                     <button
                       type="button"
@@ -292,15 +391,226 @@ export default function SheetSyncModal({ isOpen, onClose, form, event, initialLi
                   </div>
                 </div>
 
-                {link.last_synced_at && (
-                  <p style={{ fontSize: '0.78rem', color: 'var(--color-text-dim)' }}>
-                    Last row synced: {new Date(link.last_synced_at).toLocaleString()}
-                  </p>
+                {/* Resync Options Dialog */}
+                {showResyncModal && (
+                  <div style={{
+                    background: 'var(--color-surface)',
+                    border: '1px solid var(--color-border)',
+                    borderRadius: 'var(--radius-sm)',
+                    padding: '1rem',
+                    marginBottom: '1rem',
+                  }}>
+                    <div className="flex justify-between items-center mb-2">
+                      <strong style={{ fontSize: '0.9rem' }}>Choose Resynchronization Mode:</strong>
+                      <button type="button" className="btn btn-ghost btn-xs" onClick={() => setShowResyncModal(false)}>✕</button>
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '0.5rem', marginBottom: '0.5rem' }}>
+                      <button
+                        type="button"
+                        className="btn btn-secondary btn-sm text-left"
+                        onClick={() => handleTriggerResync('missing')}
+                        style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', padding: '0.6rem 0.8rem' }}
+                      >
+                        <strong>Sync Missing</strong>
+                        <span className="text-xs text-muted">Queues rows that never made it to the sheet.</span>
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-secondary btn-sm text-left"
+                        onClick={() => handleTriggerResync('verify')}
+                        style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', padding: '0.6rem 0.8rem' }}
+                      >
+                        <strong>Verify & Repair</strong>
+                        <span className="text-xs text-muted">Checks all rows, skips identical, repairs changed.</span>
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-danger btn-sm text-left"
+                        onClick={() => handleTriggerResync('rebuild')}
+                        style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', padding: '0.6rem 0.8rem' }}
+                      >
+                        <strong>Rebuild Sheet</strong>
+                        <span className="text-xs text-muted">Clears sheet data rows and writes fresh from DB.</span>
+                      </button>
+                    </div>
+                  </div>
                 )}
-                {link.last_error && (
-                  <p style={{ fontSize: '0.8rem', color: 'var(--color-danger)', marginTop: '0.35rem' }}>
-                    Sync warning: {link.last_error}
-                  </p>
+
+                {/* Real-time Sync Metrics */}
+                {data?.sync_stats && (
+                  <div style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))',
+                    gap: '0.75rem',
+                    marginTop: '0.75rem',
+                    paddingTop: '0.75rem',
+                    borderTop: '1px solid var(--color-border)',
+                  }}>
+                    <div style={{ background: 'var(--color-surface)', padding: '0.6rem 0.8rem', borderRadius: 6, border: '1px solid var(--color-border)' }}>
+                      <span className="text-xs text-muted block">Database Entries</span>
+                      <strong style={{ fontSize: '1.1rem' }}>{data.sync_stats.total_submissions}</strong>
+                    </div>
+                    <div style={{ background: 'var(--color-surface)', padding: '0.6rem 0.8rem', borderRadius: 6, border: '1px solid var(--color-border)' }}>
+                      <span className="text-xs text-muted block">Synced in Sheet</span>
+                      <strong style={{ fontSize: '1.1rem', color: 'var(--color-success)' }}>{data.sync_stats.synced}</strong>
+                    </div>
+                    <div style={{ background: 'var(--color-surface)', padding: '0.6rem 0.8rem', borderRadius: 6, border: '1px solid var(--color-border)' }}>
+                      <span className="text-xs text-muted block">Pending Flush</span>
+                      <strong style={{ fontSize: '1.1rem', color: data.sync_stats.pending > 0 ? 'var(--color-warning)' : 'inherit' }}>
+                        {data.sync_stats.pending}
+                      </strong>
+                    </div>
+                    <div style={{ background: 'var(--color-surface)', padding: '0.6rem 0.8rem', borderRadius: 6, border: '1px solid var(--color-border)' }}>
+                      <span className="text-xs text-muted block">Failed / Retry</span>
+                      <strong style={{ fontSize: '1.1rem', color: data.sync_stats.failed > 0 ? 'var(--color-danger)' : 'inherit' }}>
+                        {data.sync_stats.failed}
+                      </strong>
+                    </div>
+                  </div>
+                )}
+
+                <div className="flex justify-between items-center mt-3 pt-2" style={{ borderTop: '1px solid var(--color-border)' }}>
+                  <div>
+                    {link.last_synced_at && (
+                      <span style={{ fontSize: '0.78rem', color: 'var(--color-text-dim)' }}>
+                        Last synced: {new Date(link.last_synced_at).toLocaleString()}
+                      </span>
+                    )}
+                    {link.last_error && (
+                      <p style={{ fontSize: '0.8rem', color: 'var(--color-danger)', margin: '0.2rem 0 0' }}>
+                        Warning: {link.last_error}
+                      </p>
+                    )}
+                  </div>
+                  {data?.sync_stats?.pending > 0 && (
+                    <button
+                      type="button"
+                      className="btn btn-primary btn-xs"
+                      onClick={handleSyncNow}
+                      disabled={syncingNow}
+                    >
+                      {syncingNow ? 'Flushing…' : 'Flush Pending Now'}
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Sheet Pull Section (Sheet -> Database Edits) */}
+              <div style={{
+                background: 'var(--color-surface-2)',
+                padding: '1.25rem',
+                borderRadius: 'var(--radius)',
+                border: '1px solid var(--color-border)',
+                marginBottom: '1.25rem',
+              }}>
+                <div className="flex justify-between items-center mb-2" style={{ flexWrap: 'wrap', gap: '0.5rem' }}>
+                  <div>
+                    <h4 style={{ fontSize: '1rem', fontWeight: 700, margin: 0, display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                      <span>📥 Pull Edits from Sheet</span>
+                    </h4>
+                    <p className="text-xs text-muted" style={{ margin: '0.2rem 0 0' }}>
+                      Review changes made directly in Google Sheets and safely update the database with revision history.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-sm"
+                    onClick={handleScanPull}
+                    disabled={pullScanning}
+                  >
+                    {pullScanning ? 'Scanning Google Sheet…' : '🔍 Scan Sheet for Edits'}
+                  </button>
+                </div>
+
+                {pullMessage && (
+                  <div className="alert alert-success mt-2 mb-2 text-sm">{pullMessage}</div>
+                )}
+
+                {/* Pull Review Diff Preview */}
+                {pullBatch && pullBatch.changes && (
+                  <div style={{
+                    marginTop: '1rem',
+                    background: 'var(--color-surface)',
+                    border: '1px solid var(--color-border)',
+                    borderRadius: 'var(--radius-sm)',
+                    padding: '1rem',
+                  }}>
+                    <div className="flex justify-between items-center mb-3">
+                      <div>
+                        <strong style={{ fontSize: '0.95rem' }}>
+                          {pullBatch.changes.length} submission(s) have cell changes in Google Sheets
+                        </strong>
+                        <p className="text-xs text-muted">
+                          {pullBatch.stats?.total_field_changes} field(s) edited. Uncheck any submissions you don't want to import.
+                        </p>
+                      </div>
+                      <div className="flex gap-1 items-center">
+                        <button
+                          type="button"
+                          className="btn btn-ghost btn-xs"
+                          onClick={() => setPullBatch(null)}
+                        >
+                          Dismiss
+                        </button>
+                        <button
+                          type="button"
+                          className="btn btn-primary btn-sm"
+                          onClick={handleApplyPull}
+                          disabled={pullApplying || selectedSubmissions.size === 0}
+                        >
+                          {pullApplying ? 'Applying…' : `Apply ${selectedSubmissions.size} Edits to DB`}
+                        </button>
+                      </div>
+                    </div>
+
+                    <div style={{ maxHeight: 320, overflowY: 'auto' }}>
+                      <table className="table" style={{ fontSize: '0.82rem', width: '100%' }}>
+                        <thead>
+                          <tr>
+                            <th style={{ width: 36 }}></th>
+                            <th>Entry</th>
+                            <th>Field</th>
+                            <th>Current (Database)</th>
+                            <th></th>
+                            <th>Edited (Google Sheet)</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {pullBatch.changes.map((item) => (
+                            <React.Fragment key={item.submission_id}>
+                              {item.diffs.map((diff, dIdx) => (
+                                <tr key={`${item.submission_id}-${dIdx}`}>
+                                  {dIdx === 0 ? (
+                                    <td rowSpan={item.diffs.length} style={{ verticalAlign: 'middle' }}>
+                                      <input
+                                        type="checkbox"
+                                        checked={selectedSubmissions.has(item.submission_id)}
+                                        onChange={() => toggleSubmissionSelection(item.submission_id)}
+                                      />
+                                    </td>
+                                  ) : null}
+                                  {dIdx === 0 ? (
+                                    <td rowSpan={item.diffs.length} style={{ verticalAlign: 'middle', fontWeight: 600 }}>
+                                      #{item.entry_number} {item.cosplayer_name}
+                                      <div className="text-xs text-muted">Row {item.sheet_row}</div>
+                                    </td>
+                                  ) : null}
+                                  <td style={{ fontWeight: 500 }}>{diff.label}</td>
+                                  <td style={{ color: 'var(--color-danger)', maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                    {diff.old || <span className="text-muted">(empty)</span>}
+                                  </td>
+                                  <td style={{ width: 24, textAlign: 'center', color: 'var(--color-text-dim)' }}>→</td>
+                                  <td style={{ color: 'var(--color-success)', fontWeight: 600, maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                    {diff.new || <span className="text-muted">(cleared)</span>}
+                                  </td>
+                                </tr>
+                              ))}
+                            </React.Fragment>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
                 )}
               </div>
 

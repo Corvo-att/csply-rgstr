@@ -48,129 +48,56 @@ class CommitImportBatch implements ShouldQueue
         $duplicateStrategy = $batch->options['duplicate_strategy'] ?? 'skip';
         $allowUpdate = ($duplicateStrategy === 'update');
 
-        $link = FormSheetLink::with(['connection', 'activeMappings'])
-            ->where('form_id', $batch->form_id)
-            ->first();
-
-        $sheetActive = ($link && $link->sync_enabled && $link->connection && $link->connection->isConnected());
-
         $importedCount = 0;
-        $createdSubmissions = [];
-
-        // Fetch all rows marked valid
-        $validRows = $batch->rows()
-            ->where('status', 'valid')
-            ->orderBy('row_number')
-            ->get();
 
         // Process in 100-row chunks for atomic transactions and memory efficiency
-        foreach ($validRows->chunk(100) as $chunk) {
-            DB::transaction(function () use ($chunk, $batch, $accountResolver, $writer, $allowUpdate, &$importedCount, &$createdSubmissions) {
-                foreach ($chunk as $row) {
-                    $norm = $row->normalized ?? [];
-                    $identity = $norm['identity'] ?? [];
-                    $values = $norm['values'] ?? [];
+        $batch->rows()
+            ->where('status', 'valid')
+            ->orderBy('id')
+            ->chunkById(100, function ($chunk) use ($batch, $accountResolver, $writer, $allowUpdate, &$importedCount) {
+                DB::transaction(function () use ($chunk, $batch, $accountResolver, $writer, $allowUpdate, &$importedCount) {
+                    foreach ($chunk as $row) {
+                        $norm = $row->normalized ?? [];
+                        $identity = $norm['identity'] ?? [];
+                        $values = $norm['values'] ?? [];
 
-                    try {
-                        $cosplayer = $accountResolver->resolve($identity);
+                        try {
+                            $cosplayer = $accountResolver->resolve($identity);
 
-                        // Don't dispatch individual sheet sync jobs now; we batch sync to Google Sheets below
-                        $submission = $writer->writeOrUpdate(
-                            form: $batch->form,
-                            cosplayer: $cosplayer,
-                            values: $values,
-                            source: 'import',
-                            importBatchId: $batch->id,
-                            dispatchEvent: false,
-                            allowUpdate: $allowUpdate,
-                        );
-
-                        $row->update([
-                            'status'             => 'imported',
-                            'form_submission_id' => $submission->id,
-                        ]);
-
-                        $importedCount++;
-                        $createdSubmissions[] = $submission;
-
-                    } catch (\Throwable $e) {
-                        Log::error("Failed to import row {$row->row_number} in batch {$batch->id}: " . $e->getMessage());
-                        $row->update([
-                            'status' => 'invalid',
-                            'errors' => ['system' => [$e->getMessage()]],
-                        ]);
-                    }
-                }
-            });
-        }
-
-        // ── Batch append to Google Sheets if connected and enabled ──────
-        if ($sheetActive && !empty($createdSubmissions)) {
-            try {
-                // Chunk into 200-row spreadsheet appends
-                foreach (array_chunk($createdSubmissions, 200) as $subChunk) {
-                    $rowsToAppend = [];
-                    $recordsToCreate = [];
-
-                    foreach ($subChunk as $sub) {
-                        $sub->loadMissing(['cosplayer.user', 'values', 'form']);
-                        $sheetRow = $rowBuilder->buildRow($sub, $link);
-                        if (empty($sheetRow)) {
-                            continue;
-                        }
-
-                        $hash = $rowBuilder->computeHash($sheetRow);
-                        $rowsToAppend[] = $sheetRow;
-                        $recordsToCreate[] = [
-                            'submission_id' => $sub->id,
-                            'hash'          => $hash,
-                        ];
-                    }
-
-                    if (!empty($rowsToAppend)) {
-                        $gateway->appendRows(
-                            $link->connection,
-                            $link->spreadsheet_id,
-                            $link->sheet_title,
-                            $rowsToAppend
-                        );
-
-                        foreach ($recordsToCreate as $rec) {
-                            SheetSyncRecord::updateOrCreate(
-                                [
-                                    'form_submission_id' => $rec['submission_id'],
-                                    'form_sheet_link_id' => $link->id,
-                                ],
-                                [
-                                    'status'       => 'synced',
-                                    'synced_at'    => now(),
-                                    'payload_hash' => $rec['hash'],
-                                    'last_error'   => null,
-                                ]
+                            // SubmissionWriter marks the sync record pending without dispatching per-row jobs
+                            $submission = $writer->writeOrUpdate(
+                                form: $batch->form,
+                                cosplayer: $cosplayer,
+                                values: $values,
+                                source: 'import',
+                                importBatchId: $batch->id,
+                                dispatchEvent: false,
+                                allowUpdate: $allowUpdate,
                             );
+
+                            $row->update([
+                                'status'             => 'imported',
+                                'form_submission_id' => $submission->id,
+                            ]);
+
+                            $importedCount++;
+
+                        } catch (\Throwable $e) {
+                            Log::error("Failed to import row {$row->row_number} in batch {$batch->id}: " . $e->getMessage());
+                            $row->update([
+                                'status' => 'invalid',
+                                'errors' => ['system' => [$e->getMessage()]],
+                            ]);
                         }
                     }
-                }
+                });
+            });
 
-                $link->update(['last_synced_at' => now(), 'last_error' => null]);
-                Log::info("Synced " . count($createdSubmissions) . " imported rows to Google Sheet '{$link->spreadsheet_title}'");
-
-            } catch (\Throwable $e) {
-                Log::error("Batch Google Sheet sync failed for import batch {$batch->id}: " . $e->getMessage());
-                // Fallback: Individual submissions can still be reconciled later via sheets:reconcile
-                foreach ($createdSubmissions as $sub) {
-                    SheetSyncRecord::updateOrCreate(
-                        [
-                            'form_submission_id' => $sub->id,
-                            'form_sheet_link_id' => $link->id,
-                        ],
-                        [
-                            'status'     => 'failed',
-                            'last_error' => $e->getMessage(),
-                        ]
-                    );
-                }
-            }
+        // ── Single batched sheet flush at the end ───────────────────────
+        $link = FormSheetLink::where('form_id', $batch->form_id)->where('sync_enabled', true)->first();
+        if ($link) {
+            FlushSheetLink::dispatch($link->id);
+            Log::info("Dispatched FlushSheetLink for form {$batch->form_id} after import batch {$batch->id}");
         }
 
         $batch->update([

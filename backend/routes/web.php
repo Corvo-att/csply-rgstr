@@ -89,23 +89,27 @@ Route::prefix('admin')->name('admin.')->group(function () {
             Route::get('google/picker-token',           [GoogleAuthController::class, 'pickerToken'])->name('google.picker-token');
 
             // Form Google Sheet Integration
-            Route::get('forms/{form}/sheet',          [FormSheetLinkController::class, 'show'])->name('forms.sheet.show');
-            Route::post('forms/{form}/sheet',         [FormSheetLinkController::class, 'store'])->name('forms.sheet.store');
-            Route::post('forms/{form}/sheet/headers', [FormSheetLinkController::class, 'headers'])->name('forms.sheet.headers');
-            Route::put('forms/{form}/sheet/mappings', [FormSheetLinkController::class, 'updateMappings'])->name('forms.sheet.mappings');
-            Route::patch('forms/{form}/sheet/toggle', [FormSheetLinkController::class, 'toggle'])->name('forms.sheet.toggle');
-            Route::post('forms/{form}/sheet/resync',  [FormSheetLinkController::class, 'resync'])->name('forms.sheet.resync');
-            Route::delete('forms/{form}/sheet',       [FormSheetLinkController::class, 'destroy'])->name('forms.sheet.destroy');
+            Route::get('forms/{form}/sheet',                    [FormSheetLinkController::class, 'show'])->name('forms.sheet.show');
+            Route::post('forms/{form}/sheet',                   [FormSheetLinkController::class, 'store'])->name('forms.sheet.store');
+            Route::post('forms/{form}/sheet/headers',           [FormSheetLinkController::class, 'headers'])->name('forms.sheet.headers');
+            Route::put('forms/{form}/sheet/mappings',           [FormSheetLinkController::class, 'updateMappings'])->name('forms.sheet.mappings');
+            Route::patch('forms/{form}/sheet/toggle',           [FormSheetLinkController::class, 'toggle'])->name('forms.sheet.toggle');
+            Route::post('forms/{form}/sheet/sync-now',          [FormSheetLinkController::class, 'syncNow'])->name('forms.sheet.sync-now');
+            Route::post('forms/{form}/sheet/resync',            [FormSheetLinkController::class, 'resync'])->name('forms.sheet.resync');
+            Route::post('forms/{form}/sheet/pull',              [FormSheetLinkController::class, 'pull'])->name('forms.sheet.pull');
+            Route::post('forms/{form}/sheet/pull/{batch}/apply', [FormSheetLinkController::class, 'applyPull'])->name('forms.sheet.pull.apply');
+            Route::delete('forms/{form}/sheet',                 [FormSheetLinkController::class, 'destroy'])->name('forms.sheet.destroy');
 
-            // Excel / CSV Imports
-            Route::get('forms/{form}/import/template', [ImportController::class, 'template'])->name('forms.import.template');
-            Route::post('forms/{form}/import',         [ImportController::class, 'store'])->name('forms.import.store');
-            Route::get('imports/{batch}',              [ImportController::class, 'show'])->name('imports.show');
-            Route::put('imports/{batch}/mapping',      [ImportController::class, 'updateMapping'])->name('imports.mapping');
-            Route::put('imports/rows/{row}',           [ImportController::class, 'updateRow'])->name('imports.row');
-            Route::post('imports/{batch}/commit',      [ImportController::class, 'commit'])->name('imports.commit');
-            Route::post('imports/{batch}/rollback',    [ImportController::class, 'rollback'])->name('imports.rollback');
-            Route::get('imports/{batch}/errors',       [ImportController::class, 'errorReport'])->name('imports.errors');
+            // Excel / CSV / Google Sheets Imports
+            Route::get('forms/{form}/import/template',          [ImportController::class, 'template'])->name('forms.import.template');
+            Route::post('forms/{form}/import',                  [ImportController::class, 'store'])->name('forms.import.store');
+            Route::post('forms/{form}/import/google-sheet',     [ImportController::class, 'storeGoogleSheet'])->name('forms.import.google_sheet');
+            Route::get('imports/{batch}',                       [ImportController::class, 'show'])->name('imports.show');
+            Route::put('imports/{batch}/mapping',               [ImportController::class, 'updateMapping'])->name('imports.mapping');
+            Route::put('imports/rows/{row}',                    [ImportController::class, 'updateRow'])->name('imports.row');
+            Route::post('imports/{batch}/commit',               [ImportController::class, 'commit'])->name('imports.commit');
+            Route::post('imports/{batch}/rollback',             [ImportController::class, 'rollback'])->name('imports.rollback');
+            Route::get('imports/{batch}/errors',                [ImportController::class, 'errorReport'])->name('imports.errors');
 
             // Judge Google Sheet / Offline Sheet Generator
             Route::get('forms/{form}/judging',               [\App\Http\Controllers\Admin\JudgingController::class, 'index'])->name('forms.judging');

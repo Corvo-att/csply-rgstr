@@ -2,12 +2,10 @@
 
 namespace App\Jobs;
 
-use App\Models\Form;
 use App\Models\FormSheetLink;
 use App\Models\FormSubmission;
 use App\Models\SheetSyncRecord;
 use App\Services\GoogleSheets\SheetsGateway;
-use App\Services\GoogleSheets\SubmissionRowBuilder;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
@@ -15,97 +13,69 @@ use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\Log;
 
+/**
+ * Brings a sheet up to date by flagging submissions as pending and letting FlushSheetLink
+ * do the (batched, duplicate-free) writing.
+ *
+ *   missing - only submissions that were never pushed successfully
+ *   verify  - every submission; unchanged rows are skipped, missing/changed rows are repaired
+ *   rebuild - DESTRUCTIVE: wipes the data rows in the sheet first, then writes everything again
+ */
 class BackfillFormToSheet implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
+
+    public const MODES = ['missing', 'verify', 'rebuild'];
 
     public int $timeout = 600;
 
     public function __construct(
         public int $formId,
-        public bool $syncAll = false, // false = only unsynced, true = force resync all
+        public string $mode = 'missing',
     ) {
         $this->onQueue('sheets');
     }
 
-    public function handle(SheetsGateway $gateway, SubmissionRowBuilder $rowBuilder): void
+    public function handle(SheetsGateway $gateway): void
     {
-        $link = FormSheetLink::with(['connection', 'activeMappings'])
-            ->where('form_id', $this->formId)
-            ->first();
+        $link = FormSheetLink::with('connection')->where('form_id', $this->formId)->first();
 
-        if (!$link || !$link->connection || !$link->connection->isConnected()) {
+        if (! $link || ! $link->connection?->isConnected()) {
             return;
         }
 
-        $query = FormSubmission::with(['cosplayer.user', 'values'])
-            ->where('form_id', $this->formId)
-            ->orderBy('id', 'asc');
-
-        if (!$this->syncAll) {
-            // Filter only submissions without a successful sync record
-            $query->whereDoesntHave('sheetSyncRecords', function ($q) use ($link) {
-                $q->where('form_sheet_link_id', $link->id)->where('status', 'synced');
-            });
+        if ($this->mode === 'rebuild') {
+            $gateway->clearDataRows($link->connection, $link->spreadsheet_id, $link->sheet_title, $link->header_row + 1);
+            SheetSyncRecord::where('form_sheet_link_id', $link->id)->delete();
         }
 
-        $total = $query->count();
-        if ($total === 0) {
-            Log::info("No submissions to backfill for form {$this->formId}");
-            return;
+        $query = FormSubmission::where('form_id', $this->formId)->select('id');
+        if ($this->mode === 'missing') {
+            $query->whereDoesntHave('sheetSyncRecords', fn ($q) => $q->where('form_sheet_link_id', $link->id)->where('status', 'synced'));
         }
 
-        Log::info("Starting backfill of {$total} submissions for form {$this->formId}");
-
-        $query->chunk(200, function ($submissions) use ($gateway, $rowBuilder, $link) {
-            $rowsToAppend = [];
-            $recordsToUpdate = [];
-
-            foreach ($submissions as $sub) {
-                $row = $rowBuilder->buildRow($sub, $link);
-                if (empty($row)) {
-                    continue;
-                }
-
-                $hash = $rowBuilder->computeHash($row);
-                $rowsToAppend[] = $row;
-                $recordsToUpdate[] = [
-                    'submission_id' => $sub->id,
-                    'hash'          => $hash,
-                ];
-            }
-
-            if (!empty($rowsToAppend)) {
-                try {
-                    $gateway->appendRows(
-                        $link->connection,
-                        $link->spreadsheet_id,
-                        $link->sheet_title,
-                        $rowsToAppend
-                    );
-
-                    foreach ($recordsToUpdate as $rec) {
-                        SheetSyncRecord::updateOrCreate(
-                            [
-                                'form_submission_id' => $rec['submission_id'],
-                                'form_sheet_link_id' => $link->id,
-                            ],
-                            [
-                                'status'       => 'synced',
-                                'synced_at'    => now(),
-                                'payload_hash' => $rec['hash'],
-                                'last_error'   => null,
-                            ]
-                        );
-                    }
-                } catch (\Throwable $e) {
-                    Log::error("Backfill batch failed for form {$this->formId}: " . $e->getMessage());
-                    throw $e;
-                }
-            }
+        $total = 0;
+        $query->chunkById(1000, function ($subs) use ($link, &$total) {
+            $now = now();
+            SheetSyncRecord::upsert(
+                $subs->map(fn ($s) => [
+                    'form_submission_id' => $s->id,
+                    'form_sheet_link_id' => $link->id,
+                    'status'             => 'pending',
+                    'attempts'           => 0,
+                    'created_at'         => $now,
+                    'updated_at'         => $now,
+                ])->all(),
+                ['form_submission_id', 'form_sheet_link_id'],
+                ['status', 'attempts', 'updated_at'],
+            );
+            $total += $subs->count();
         });
 
-        $link->update(['last_synced_at' => now()]);
-        Log::info("Backfill completed for form {$this->formId}");
+        Log::info("Sheet {$this->mode} for form {$this->formId}: {$total} submission(s) queued");
+
+        if ($total > 0) {
+            FlushSheetLink::dispatch($link->id);
+        }
     }
 }
